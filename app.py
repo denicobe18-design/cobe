@@ -5,7 +5,7 @@ import streamlit as st
 from ui.styles import apply_brutal_styles
 
 st.set_page_config(
-    page_title="Popravni Store | Oprema za svaki dan",
+    page_title="Luma Living | Oprema za svaki dan",
     page_icon="🛍️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -129,7 +129,7 @@ def render_header() -> None:
     brand_col, nav_col, cart_col = st.columns([1.2, 2.2, 1], vertical_alignment="center")
     with brand_col:
         st.markdown(
-            "<a class='brand' href='#top'>popravni<span>.</span></a>",
+            "<a class='brand' href='#top'>luma living<span>.</span></a>",
             unsafe_allow_html=True,
         )
     with nav_col:
@@ -321,11 +321,11 @@ def render_benefits() -> None:
             </div>
         </section>
         <footer id="kontakt" class="store-footer">
-            <div><a class="brand footer-brand" href="#top">popravni<span>.</span></a>
+            <div><a class="brand footer-brand" href="#top">luma living<span>.</span></a>
             <p>Dobre sitnice za svaki dan.</p></div>
             <div class="footer-contact"><b>Demonstracijska trgovina</b><br>
             Ovdje se ne zaprimaju stvarne narudžbe.</div>
-            <div class="footer-small">© 2026 Popravni Store · ogledni sadržaj</div>
+            <div class="footer-small">© 2026 Luma Living · ogledni sadržaj</div>
         </footer>
         """,
         unsafe_allow_html=True,

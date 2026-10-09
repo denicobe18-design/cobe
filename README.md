@@ -1,4 +1,4 @@
-# Popravni Store — demo trgovina
+# Luma Living — demo trgovina
 
 Responzivni Streamlit demo katalog s pretragom i oglednom košaricom. Projekt se
 može objaviti na Streamlit Community Cloudu, ali trenutačno **nije spreman za
