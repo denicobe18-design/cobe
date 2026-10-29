@@ -39,7 +39,7 @@ def build_figure(symbol: str, candles: tuple[Candle, ...] | list[Candle], formin
         template="plotly_dark",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#0b121b",
-        height=520,
+        height=430,
         margin=dict(l=8, r=8, t=42, b=8),
         xaxis_rangeslider_visible=False,
         showlegend=False,
@@ -54,7 +54,7 @@ def build_figure(symbol: str, candles: tuple[Candle, ...] | list[Candle], formin
         entry = float(position["entry"])
         stop = float(position["sl"])
         target = float(position["tp"])
-        stop_label = "SL trail" if stop >= entry * 0.999 else "SL −2%"
+        stop_label = "SL trail" if stop >= entry * 0.999 else "SL"
         figure.add_hline(
             y=target,
             line_color="#3dff8a",

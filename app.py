@@ -14,7 +14,7 @@ from doxa.runtime import ensure_started
 from doxa.store import peek_wallet
 from doxa.engine import Engine
 from ui.chart import build_figure
-from ui.office import journal_html, office_html, positions_html, rail_html
+from ui.office import deck_html, journal_html, office_html, positions_html, rail_html
 from ui.styles import apply_brutal_styles
 from ui.text import clock, countdown, eur, pct, px
 
@@ -108,8 +108,14 @@ def cockpit() -> None:
     elif state["frozen"]:
         status = "FREEZE"
     equity = float(state["equity"])
-    progress = max(0.0, min(1.0, equity / float(state["target"])))
-    left_col, right_col = st.columns([1.12, 0.88], gap="medium")
+    target = float(state["target"]) or 1.0
+    progress = max(0.0, min(1.0, equity / target))
+    done = int(state.get("trade_count") or 0)
+    goal = max(1, int(state.get("trades_goal") or 1000))
+    trade_progress = max(0.0, min(1.0, done / goal))
+    pnl_value = float(state["pnl"])
+    pnl_text = ("+" if pnl_value >= 0 else "") + eur(pnl_value)
+    left_col, right_col = st.columns([1.08, 0.92], gap="medium")
     with left_col:
         st.markdown(
             office_html(
@@ -126,16 +132,18 @@ def cockpit() -> None:
             unsafe_allow_html=True,
         )
     with right_col:
-        metric_cols = st.columns(2)
-        metric_cols[0].metric("Kapital", eur(equity), delta=round(float(state["pnl"]), 2))
-        metric_cols[1].metric("Rok", countdown(state["remaining_s"]))
-        metric_cols = st.columns(2)
-        metric_cols[0].metric("Gotovina", eur(float(state["cash"])))
-        done = int(state.get("trade_count") or 0)
-        goal = int(state.get("trades_goal") or 1000)
-        metric_cols[1].metric("Trejdovi", f"{done} / {goal}", delta=f"{stats.wins}W / {stats.losses}L")
         st.markdown(
-            f"<div class='progress' title='Put do 1.000 €'><span style='width:{progress * 100:.1f}%'></span></div>",
+            deck_html(
+                equity=eur(equity),
+                pnl=pnl_text,
+                pnl_up=pnl_value >= 0,
+                cash=eur(float(state["cash"])),
+                remaining=countdown(state["remaining_s"]),
+                done=done,
+                goal=goal,
+                capital_pct=progress * 100,
+                trade_pct=trade_progress * 100,
+            ),
             unsafe_allow_html=True,
         )
         st.selectbox("Par na grafu", focus_options, key="focus")
@@ -162,6 +170,7 @@ def cockpit() -> None:
     log_rows = [{"clock": clock(float(item["t"])), "text": item["text"]} for item in state["log"]]
     st.markdown(journal_html(log_rows, state["lessons"]), unsafe_allow_html=True)
 
+    st.markdown("<div class='dock-label'>Kontrola motora</div>", unsafe_allow_html=True)
     halt_col, resume_col, reset_col, sample_col = st.columns(4)
     active = engine is not None
     with halt_col:
@@ -184,15 +193,17 @@ def cockpit() -> None:
 def main() -> None:
     st.markdown(
         """
-        <div class="banner">
+        <header class="mast">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>NAREDBA: 100 € → 1.000 € u 24 sata, najmanje 1.000 trejdova. Tempo otvara protok
-                čim knjiga nije protiv nas. Svaki trejd odmah uči mozak. Mrtav ulaz grebe se za 50 sekundi.
-                Oba uvjeta moraju biti gotova. Papir, živa cijena. Nema jamstva.</p>
+                <p>Papir na živoj cijeni. Nalozi ne odlaze na burzu.</p>
             </div>
-            <em>TIER 1 TICK · TIER 2 RADAR · TIER 3 UČITELJ</em>
-        </div>
+            <div class="chips">
+                <b>100 € → 1.000 €</b>
+                <b>24 sata</b>
+                <b>1.000 trejdova</b>
+            </div>
+        </header>
         """,
         unsafe_allow_html=True,
     )

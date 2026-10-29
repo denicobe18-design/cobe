@@ -67,17 +67,59 @@ def office_html(
     elif shut:
         stamp = "<div class='stamp'>URED ZATVOREN</div>"
     scene = "scene shut" if shut or won else "scene"
+    low = status.lower()
+    if "zatvoren" in low:
+        tone = "dead"
+    elif "nalog" in low:
+        tone = "won"
+    elif "freeze" in low:
+        tone = "warn"
+    else:
+        tone = "live"
     return (
         f"<section class='{scene}'>"
         "<div class='hud'>"
-        "<div><span>DOXA</span> QUANT CORE</div>"
-        f"<div class='rok'>⏱ ROK { _esc(countdown)}</div>"
-        f"<div class='status'>{_esc(status)}</div>"
+        "<div class='brand'><span>DOXA</span> FLOOR</div>"
+        f"<div class='rok'>ROK {_esc(countdown)}</div>"
+        f"<div class='pill {tone}'>{_esc(status)}</div>"
         "</div>"
+        "<div class='floor'></div>"
         "<div class='iso'>" + "".join(cells) + "</div>"
         f"<p class='lesson'>{_esc(lesson)}</p>"
         f"{stamp}"
         "</section>"
+    )
+
+
+def deck_html(
+    *,
+    equity: str,
+    pnl: str,
+    pnl_up: bool,
+    cash: str,
+    remaining: str,
+    done: int,
+    goal: int,
+    capital_pct: float,
+    trade_pct: float,
+) -> str:
+    tone = "up" if pnl_up else "down"
+    return (
+        "<div class='deck'>"
+        f"<article class='tile'><span>Kapital</span><strong>{_esc(equity)}</strong>"
+        f"<em class='{tone}'>{_esc(pnl)}</em></article>"
+        f"<article class='tile'><span>Rok</span><strong>{_esc(remaining)}</strong>"
+        "<em>24 sata</em></article>"
+        f"<article class='tile'><span>Gotovina</span><strong>{_esc(cash)}</strong>"
+        "<em>slobodno</em></article>"
+        f"<article class='tile'><span>Trejdovi</span><strong>{done} / {goal}</strong>"
+        "<em>kvota</em></article>"
+        "<div class='bars'>"
+        f"<label>Put do 1.000 € <b>{capital_pct:.0f}%</b></label>"
+        f"<div class='progress'><span style='width:{capital_pct:.1f}%'></span></div>"
+        f"<label>Kvota trejdova <b>{done}</b></label>"
+        f"<div class='progress quota'><span style='width:{trade_pct:.1f}%'></span></div>"
+        "</div></div>"
     )
 
 
@@ -100,7 +142,7 @@ def rail_html(views, teacher_state: str, lesson: str, win_rate: str) -> str:
 
 def positions_html(rows: list[dict]) -> str:
     if not rows:
-        return "<div class='empty'>Nema otvorene pozicije. Agenti skeniraju knjigu i čekaju 3/3.</div>"
+        return "<div class='empty'>Nema otvorene pozicije. Tempo skenira knjigu.</div>"
     body = []
     for row in rows:
         live = float(row.get("live_pct") or 0)
