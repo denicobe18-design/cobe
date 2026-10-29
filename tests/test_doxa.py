@@ -185,6 +185,26 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(decision.views[1].state, "freeze")
 
 
+class RuntimeTests(unittest.TestCase):
+    def test_lock_does_not_need_fcntl_at_import(self) -> None:
+        import doxa.runtime as runtime
+
+        self.assertFalse(hasattr(runtime, "fcntl"))
+        previous = os.environ.get("DOXA_LOCK")
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                os.environ["DOXA_LOCK"] = str(Path(folder) / "engine.lock")
+                handle = runtime._acquire_lock()
+                self.assertIsNotNone(handle)
+                if handle is not None:
+                    handle.close()
+        finally:
+            if previous is None:
+                os.environ.pop("DOXA_LOCK", None)
+            else:
+                os.environ["DOXA_LOCK"] = previous
+
+
 class EngineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import fcntl
+import os
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -39,17 +40,32 @@ def get_hub() -> MarketHub:
     return hub
 
 
+def _lock_path() -> Path:
+    override = os.getenv("DOXA_LOCK", "").strip()
+    return Path(override or LOCK_PATH)
+
+
 def _acquire_lock():
-    path = Path(LOCK_PATH)
+    """Jedan motor po računalu. Na Windowsu nema fcntl, pa se zaključava preko msvcrt."""
+    path = _lock_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(path, "a+", encoding="utf-8")
+    handle = open(path, "a+b")
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"\0")
+            handle.flush()
+        handle.seek(0)
+        if sys.platform == "win32":
+            import msvcrt
+
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
         handle.close()
         return None
-    handle.write(str(time.time()))
-    handle.flush()
     return handle
 
 
