@@ -12,12 +12,16 @@ nije potreban.
 namješta. Stari dnevnik od 10 sati se na prvom pokretanju zamjenjuje novim
 satom od 200 €.
 
-Svaki od sedam agenata ima zaseban mozak: vlastite težine, prag i pomak
-doktrine. Na ulazu glasa sam. Nakon zatvaranja radi jedan korak učenja i,
-ako serija drži ili puca, sam digne ili spusti prag. Motor u jednom ticku
-otvara sve parove koje se jato složi, do osam odjednom, i zatvara čim cijena
-dotakne cilj. Ulog po trejdu je manji da stane više pozicija. Brza dobit i
-dalje ovisi o živoj cijeni.
+Svaki agent vodi svoju igru i pamti njezin rub:
+
+- **Whale** vodi knjigu kad je bid zid jak, i dip kad se 1m RSI diže iz dna.
+- **MTF** vodi momentum čim je okret tu, bez čekanja da svih šest kaže da.
+- **Radar** vodi nalet kad je cijena i knjiga u hypu.
+- Potrebna je jedna potvrda drugog mozga. Skeptik i BTC Guard i dalje mogu zaustaviti ulaz.
+- Igra koja četiri puta završi u minusu postaje hladna i taj agent je više ne nudi.
+- Trejd koji za četiri minute nije ni taknuo plus grebe se, da kapital ide u sljedeću igru.
+
+Živa cijena i dalje odlučuje o dobiti.
 
 ## Što radi
 

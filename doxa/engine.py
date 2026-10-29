@@ -253,6 +253,13 @@ class Engine:
         if position.mfe >= doctrine.be_trigger and position.sl < position.entry:
             position.sl = position.entry
             self._note(f"{position.symbol} stop dignut na ulaz. Rizik je nula.")
+        age_s = 0.0
+        if snapshot.now_ms and position.opened_ms:
+            age_s = (snapshot.now_ms - position.opened_ms) / 1000.0
+        if age_s >= 240 and position.mfe < 0.0015 and gain <= 0.0005:
+            self._sell(position, position.qty, bid, snapshot.books.get(position.symbol), "CAS")
+            self._note(f"{position.symbol} stoji. Grebem ulaz i puštam kapital u sljedeću igru.")
+            return False
         if bid >= position.tp and position.qty > 0:
             self._sell(position, position.qty, bid, snapshot.books.get(position.symbol), "TP")
             return False
@@ -314,7 +321,7 @@ class Engine:
                 brains=self.wallet.brains,
             )
             if decision.setup and not decision.allow:
-                self._symbol_cooldown[symbol] = now + 8.0
+                self._symbol_cooldown[symbol] = now + 4.0
             if decision.allow:
                 ready.append(decision)
         ready.sort(key=lambda item: item.score, reverse=True)
@@ -369,6 +376,7 @@ class Engine:
             "leverage": leverage,
             "entry_fee": entry_fee,
             "brains": decision.metrics.get("brains") or {},
+            "lead": decision.metrics.get("lead") or "",
         }
         position = Position(
             symbol=symbol,

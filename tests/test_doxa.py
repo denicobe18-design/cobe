@@ -155,6 +155,20 @@ class AgentTests(unittest.TestCase):
         decision = evaluate(self._market(), "SOLUSDT", Doctrine(), Stats())
         self.assertTrue(decision.allow, decision.reason + " | " + " ; ".join(view.detail for view in decision.views))
         self.assertGreater(decision.stake_fraction, 0)
+        self.assertIn(decision.metrics["lead"], {"whale", "mtf", "radar", "dip"})
+
+    def test_cold_play_is_dropped(self) -> None:
+        brains = default_brains()
+        for name in ("whale", "mtf", "radar"):
+            brains[name].memory = {
+                "whale": {"ema": -0.05, "n": 6},
+                "mtf": {"ema": -0.05, "n": 6},
+                "radar": {"ema": -0.05, "n": 6},
+                "dip": {"ema": -0.05, "n": 6},
+            }
+        decision = evaluate(self._market(), "SOLUSDT", Doctrine(), Stats(), brains=brains)
+        self.assertFalse(decision.allow, decision.reason)
+        self.assertIn("ugasio", decision.reason)
 
     def test_skeptic_veto(self) -> None:
         decision = evaluate(self._market(funding=0.001, breakout_volume=10), "SOLUSDT", Doctrine(), Stats())
@@ -303,6 +317,15 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(self.engine.wallet.closed), 1)
         self.assertEqual(self.engine.wallet.closed[0]["reason"], "TRAIL")
         self.assertGreater(self.engine.wallet.closed[0]["fees"], 0)
+
+    def test_dead_trade_is_scratched(self) -> None:
+        snap = self._priced(99.98, 100.0)
+        self.engine._open(self._decision(), snap, snap.now_ms / 1000.0)
+        position = self.engine.wallet.positions[0]
+        position.opened_ms = snap.now_ms - 400_000
+        stalled = self._priced(position.entry * 0.998, position.entry * 0.999)
+        self.assertFalse(self.engine._manage(position, stalled, False))
+        self.assertEqual(self.engine.wallet.closed[-1]["reason"], "CAS")
 
     def test_target_price_locks_the_trade(self) -> None:
         snap = self._priced(99.98, 100.0)

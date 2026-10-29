@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from doxa.types import Doctrine
@@ -20,6 +20,22 @@ class Brain:
     wins: int = 0
     reward: float = 0.0
     generation: int = 0
+    memory: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    def remember(self, key: str, reward: float) -> None:
+        slot = dict(self.memory.get(key) or {})
+        seen = int(slot.get("n", 0)) + 1
+        ema = float(slot.get("ema", 0.0))
+        ema += (reward - ema) / seen
+        self.memory[key] = {"ema": ema, "n": float(seen)}
+
+    def cold(self, key: str) -> bool:
+        """Igra koja je nekoliko puta izgubila više se ne nudi."""
+        slot = self.memory.get(key) or {}
+        seen = int(slot.get("n", 0))
+        if seen < 4:
+            return False
+        return float(slot.get("ema", 0.0)) < -0.012
 
     def belief(self, features: list[float]) -> float:
         score = self.bias
@@ -98,8 +114,20 @@ def restore_brains(raw: Any) -> dict[str, Brain]:
             wins=int(item.get("wins", 0)),
             reward=float(item.get("reward", 0.0)),
             generation=int(item.get("generation", 0)),
+            memory=_memory(item.get("memory")),
         )
     return brains
+
+
+def _memory(raw: Any) -> dict[str, dict[str, float]]:
+    if not isinstance(raw, dict):
+        return {}
+    cleaned: dict[str, dict[str, float]] = {}
+    for key, slot in raw.items():
+        if not isinstance(slot, dict):
+            continue
+        cleaned[str(key)] = {"ema": float(slot.get("ema", 0.0)), "n": float(slot.get("n", 0))}
+    return cleaned
 
 
 def brains_to_plain(brains: dict[str, Brain]) -> dict[str, dict[str, Any]]:
@@ -144,12 +172,21 @@ def learn_pack(brains: dict[str, Brain], context: dict[str, Any], pnl: float, pn
         features = item.get("x")
         if not isinstance(features, list) or len(features) != 4:
             continue
+        voted = bool(item.get("yes"))
         brain.learn([float(value) for value in features], won, reward)
         loss_step, win_step, low, high = _NUDGE[name]
-        brain.shift += win_step if won else loss_step
+        if voted:
+            brain.shift += win_step if won else loss_step
+            lead = str(context.get("lead") or "pack")
+            brain.remember(lead, reward)
+        elif won:
+            brain.shift += win_step * 0.5
         brain.shift = max(low, min(high, brain.shift))
         belief = brain.belief([float(value) for value in features])
+        slot = brain.memory.get(str(context.get("lead") or "pack")) or {}
+        edge = float(slot.get("ema", brain.reward))
         notes.append(
-            f"{name} gen {brain.generation} prag {brain.threshold * 100:.0f}% vjera {belief * 100:.0f}%"
+            f"{name} gen {brain.generation} prag {brain.threshold * 100:.0f}% "
+            f"vjera {belief * 100:.0f}% rub {edge * 100:.1f}%"
         )
     return notes

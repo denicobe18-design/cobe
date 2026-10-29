@@ -497,9 +497,40 @@ def evaluate(
     pack_yes = [name for name in pack_names if mind_pack[name][0]]
     reason = "Nema setupa."
     allow = False
-    setup = bool(mtf_ok or (mtf_yes and whale_yes))
+    setup = bool(mtf_ok or (mtf_yes and whale_yes) or whale_yes)
     score = 0.0
-    agreed = len(pack_yes) >= 4 and whale_yes and (mtf_ok or mtf_yes)
+    dip = (
+        rsi1 is not None
+        and rsi1_prev is not None
+        and 32.0 <= rsi1 <= 48.0
+        and rsi1 > rsi1_prev
+        and imbalance is not None
+        and imbalance >= doctrine.whale_min
+        and whale_yes
+    )
+    confirmers = sum(1 for name in ("mtf", "radar", "kelly", "trail") if mind_pack[name][0])
+    plays: list[tuple[str, float, str]] = []
+    if whale_yes and imbalance is not None and imbalance >= doctrine.whale_min and confirmers >= 1:
+        if not minds["whale"].cold("whale"):
+            plays.append(("whale", whale_p + confirmers * 0.04, "Whale vodi knjigu"))
+    if whale_yes and (mtf_ok or mtf_yes) and not minds["mtf"].cold("mtf"):
+        plays.append(("mtf", mtf_p + (0.08 if mtf_ok else 0.0), "MTF vodi momentum"))
+    if (
+        radar_yes
+        and label in {"HYPE", "EXTREME_HYPE"}
+        and imbalance is not None
+        and imbalance > doctrine.whale_block
+        and (whale_yes or mtf_yes)
+        and not minds["radar"].cold("radar")
+    ):
+        plays.append(("radar", radar_p + 0.06, "Radar vodi nalet"))
+    if dip and not minds["whale"].cold("dip"):
+        plays.append(("dip", whale_p + 0.03, "Whale vodi dip"))
+    plays.sort(key=lambda item: item[1], reverse=True)
+    lead = plays[0][0] if plays else ""
+    lead_text = plays[0][2] if plays else ""
+    lead_score = plays[0][1] if plays else 0.0
+    metrics["lead"] = lead
 
     if halted:
         reason = "Motor je ugašen."
@@ -521,17 +552,20 @@ def evaluate(
         reason = "Kelly ne da ulog."
     elif not snapshot.ready and snapshot.hub_status != "TEST":
         reason = "Tok podataka još nije spreman."
-    elif agreed:
+    elif plays:
         allow = True
+        stake = min(doctrine.kelly_cap, stake * (0.85 + 0.5 * min(1.0, lead_score)))
         names = ", ".join(pack_yes)
-        reason = f"Jato {len(pack_yes)}/6 ({names}). Brzi ulaz, mozgovi se slažu."
-        score = sum(item[1] for item in mind_pack.values()) + stake
+        reason = f"{lead_text}. Potvrda: {names}. Brzi ulaz."
+        score = lead_score + stake
+    elif whale_yes or mtf_ok or mtf_yes or dip:
+        reason = "Mozak je ugasio igru koja je gubila. Čeka novi rub."
     elif not mtf_ok and not mtf_yes:
         reason = "Blitz čeka 15m iznad EMA21 i 1m okret." if fast else "MTF nije 3/3."
     elif not whale_yes:
         reason = f"Whale mozak čeka jači zid od {_pct(doctrine.whale_min, 0)}."
     else:
-        reason = f"Mozgovi {len(pack_yes)}/6. Čekam jače slaganje."
+        reason = f"Mozgovi {len(pack_yes)}/6. Čekam svoju igru."
 
     return Decision(
         symbol=symbol,

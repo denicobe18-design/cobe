@@ -41,8 +41,8 @@ TARGET_CASH = 1000.0
 HORIZON_S = 60 * 60
 MISSION_ID = "blitz-1h"
 MIN_STAKE_EUR = 10.0
-ENTRY_COOLDOWN_S = 22.0
-GLOBAL_ENTRY_GAP_S = 2.0
+ENTRY_COOLDOWN_S = 12.0
+GLOBAL_ENTRY_GAP_S = 0.0
 FREEZE_COOLDOWN_S = 180.0
 
 # Spot koji nije geo-blokiran tamo gdje api.binance.com vraća 451.

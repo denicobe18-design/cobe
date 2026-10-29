@@ -185,9 +185,9 @@ def main() -> None:
         <div class="banner">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Svaki agent ima vlastiti mozak koji sam glasa,
-                uči iz zatvorenih trejdova i miče svoj prag. Ulaze u više parova odjednom i brzo
-                zaključavaju dobit. Papir, živa cijena. Nema jamstva.</p>
+                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Svaki agent vodi svoju igru: knjiga, momentum,
+                nalet ili dip. Pamti je li ta igra zarađivala i gasi je kad gubi. Mrtav trejd grebe
+                za četiri minute. Papir, živa cijena. Nema jamstva.</p>
             </div>
             <em>TIER 1 TICK · TIER 2 RADAR · TIER 3 UČITELJ</em>
         </div>
