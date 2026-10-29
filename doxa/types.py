@@ -64,11 +64,12 @@ class AgentView:
 class Doctrine:
     """Živi parametri. Učitelj ih miče samo unutar tvrdog raspona."""
 
-    whale_min: float = 0.55
+    whale_min: float = 0.50
     whale_block: float = 0.40
     blitz: bool = True
-    blitz_floor: float = 0.12
-    leverage: float = 10.0
+    blitz_floor: float = 0.04
+    leverage: float = 5.0
+    pace: float = 1.0
     whale_boost: float = 1.25
     btc_drop: float = 0.007
     btc_vol_mult: float = 3.0
@@ -78,11 +79,11 @@ class Doctrine:
     funding_veto: float = 0.0005
     atr_period: int = 14
     atr_mult: float = 1.2
-    be_trigger: float = 0.0045
-    partial_trigger: float = 0.007
-    partial_frac: float = 0.65
-    sl_pct: float = 0.0045
-    tp_pct: float = 0.012
+    be_trigger: float = 0.003
+    partial_trigger: float = 0.006
+    partial_frac: float = 0.7
+    sl_pct: float = 0.004
+    tp_pct: float = 0.010
     kelly_fraction: float = 0.5
     kelly_cap: float = 0.55
     sentiment_boost: float = 1.5
@@ -100,7 +101,7 @@ class Doctrine:
     def clamped(self) -> Doctrine:
         limits = {
             "whale_min": (0.48, 0.85),
-            "blitz_floor": (0.06, 0.40),
+            "blitz_floor": (0.03, 0.40),
             "leverage": (1.0, 12.0),
             "whale_block": (0.25, 0.50),
             "whale_boost": (1.0, 1.40),

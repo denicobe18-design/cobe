@@ -155,7 +155,7 @@ class AgentTests(unittest.TestCase):
         decision = evaluate(self._market(), "SOLUSDT", Doctrine(), Stats())
         self.assertTrue(decision.allow, decision.reason + " | " + " ; ".join(view.detail for view in decision.views))
         self.assertGreater(decision.stake_fraction, 0)
-        self.assertIn(decision.metrics["lead"], {"whale", "mtf", "radar", "dip"})
+        self.assertIn(decision.metrics["lead"], {"whale", "mtf", "radar", "dip", "flow"})
 
     def test_cold_play_is_dropped(self) -> None:
         brains = default_brains()
@@ -165,6 +165,7 @@ class AgentTests(unittest.TestCase):
                 "mtf": {"ema": -0.05, "n": 6},
                 "radar": {"ema": -0.05, "n": 6},
                 "dip": {"ema": -0.05, "n": 6},
+                "flow": {"ema": -0.05, "n": 6},
             }
         decision = evaluate(self._market(), "SOLUSDT", Doctrine(), Stats(), brains=brains)
         self.assertFalse(decision.allow, decision.reason)
@@ -380,10 +381,10 @@ class EngineTests(unittest.TestCase):
         position = self.engine.wallet.positions[0]
         self.assertGreater(position.context["leverage"], 1)
         notional = position.qty * position.entry
-        self.assertGreater(notional, position.context["margin"] * 5)
+        self.assertGreater(notional, position.context["margin"] * 4)
         bid = snap.books["SOLUSDT"].bid or 0
         self.engine._sell(position, position.qty, bid, snap.books["SOLUSDT"], "TEST")
-        self.assertGreater(self.engine.wallet.cash, 170)
+        self.assertGreater(self.engine.wallet.cash, before * 0.8)
         self.assertLess(self.engine.wallet.cash, before)
 
     def test_hour_without_target_closes_the_office(self) -> None:
@@ -396,10 +397,15 @@ class EngineTests(unittest.TestCase):
         self.engine.resume()
         self.assertTrue(self.engine.wallet.halted)
 
-    def test_target_halts_as_filled_order(self) -> None:
+    def test_target_waits_until_trade_quota(self) -> None:
+        from doxa.config import MIN_TRADES
+
         self.engine.wallet.cash = 1000
         snap = self._priced(99.98, 100.0)
         self.engine.last_snap = snap
+        self.engine._expire(self.engine.wallet.started_at)
+        self.assertFalse(self.engine.wallet.halted)
+        self.engine.wallet.trade_count = MIN_TRADES
         self.engine._expire(self.engine.wallet.started_at)
         self.assertTrue(self.engine.wallet.halted)
         self.assertIn("izvršen", self.engine.wallet.halt_reason.lower())

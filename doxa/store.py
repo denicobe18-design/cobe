@@ -54,6 +54,7 @@ class Wallet:
     mission: str
     brains: dict[str, Brain]
     pack: int
+    trade_count: int
 
 
 def fresh_wallet(now: float | None = None) -> Wallet:
@@ -70,8 +71,8 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         halted=False,
         halt_reason="",
         lessons=[
-            "Naredba: 200 € u 1.000 € za 60 minuta. Ako rok istekne, ured se zatvara.",
-            "Svaki agent ima vlastiti mozak. Uči iz svakog zatvaranja i sam miče prag.",
+            "Naredba: 100 € u 1.000 € za 24 sata, uz najmanje 1.000 trejdova.",
+            "Tempo gura ulaze. Svaki trejd odmah uči. Ako rok istekne, ured se zatvara.",
         ],
         sample_from=0,
         last_relax_at=clock,
@@ -82,6 +83,7 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         mission=MISSION_ID,
         brains=default_brains(),
         pack=2,
+        trade_count=0,
     )
 
 
@@ -132,6 +134,7 @@ def wallet_from_dict(raw: dict[str, Any]) -> Wallet:
     if wallet.pack < 2:
         _upgrade_pack(wallet.doctrine)
         wallet.pack = 2
+    wallet.trade_count = int(raw.get("trade_count") or len(wallet.closed))
     return wallet
 
 

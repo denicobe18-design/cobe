@@ -25,8 +25,8 @@ class Brain:
     def remember(self, key: str, reward: float) -> None:
         slot = dict(self.memory.get(key) or {})
         seen = int(slot.get("n", 0)) + 1
-        ema = float(slot.get("ema", 0.0))
-        ema += (reward - ema) / seen
+        previous = float(slot.get("ema", reward))
+        ema = reward if seen == 1 else previous * 0.55 + reward * 0.45
         self.memory[key] = {"ema": ema, "n": float(seen)}
 
     def cold(self, key: str) -> bool:
@@ -54,7 +54,7 @@ class Brain:
         """Jedan korak logističke regresije, pa prag prema vlastitom rezultatu."""
         probability = self.belief(features)
         error = (1.0 if won else 0.0) - probability
-        rate = 0.55
+        rate = 1.05
         self.weights = [
             max(-4.0, min(4.0, weight + rate * error * feature))
             for weight, feature in zip(self.weights, features)
@@ -63,12 +63,12 @@ class Brain:
         self.seen += 1
         if won:
             self.wins += 1
-        self.reward += (reward - self.reward) / self.seen
+        self.reward += (reward - self.reward) * 0.45
         if won:
-            self.threshold = max(0.40, self.threshold - 0.008)
+            self.threshold = max(0.38, self.threshold - 0.02)
         else:
-            self.threshold = min(0.74, self.threshold + 0.015)
-        if self.seen % 5 == 0:
+            self.threshold = min(0.74, self.threshold + 0.03)
+        if self.seen % 3 == 0:
             rate_won = self.wins / self.seen
             if rate_won >= 0.55:
                 self.threshold = max(0.40, self.threshold - 0.02)

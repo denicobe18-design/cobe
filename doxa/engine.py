@@ -8,7 +8,15 @@ from typing import Any
 
 from doxa.agents import assess_btc, evaluate
 from doxa.brains import brains_to_plain, learn_pack
-from doxa.config import ENTRY_COOLDOWN_S, GLOBAL_ENTRY_GAP_S, MIN_STAKE_EUR, START_CASH, TRADABLE
+from doxa.config import (
+    ENTRY_COOLDOWN_S,
+    GLOBAL_ENTRY_GAP_S,
+    MIN_STAKE_EUR,
+    MIN_TRADES,
+    SCRATCH_S,
+    START_CASH,
+    TRADABLE,
+)
 from doxa.indicators import atr as atr_indicator
 from doxa.notify import notify
 from doxa.store import Position, Wallet, fresh_wallet, load_wallet, save_wallet
@@ -97,7 +105,7 @@ class Engine:
         return notes
 
     def stats(self) -> Stats:
-        sample = self.wallet.closed[self.wallet.sample_from :]
+        sample = self.wallet.closed[self.wallet.sample_from :][-40:]
         wins = [float(item["pnl"]) for item in sample if float(item.get("pnl", 0)) > 0]
         losses = [abs(float(item["pnl"])) for item in sample if float(item.get("pnl", 0)) < 0]
         return Stats(
@@ -141,6 +149,8 @@ class Engine:
                 "log": list(self.wallet.log[-40:]),
                 "lessons": list(self.wallet.lessons[-8:]),
                 "closed_n": len(self.wallet.closed),
+                "trade_count": self.wallet.trade_count,
+                "trades_goal": MIN_TRADES,
                 "stats": stats,
                 "doctrine": Doctrine(**self.wallet.doctrine.__dict__),
                 "brains": brains_to_plain(self.wallet.brains),
@@ -193,7 +203,7 @@ class Engine:
             self.wallet = fresh_wallet()
             self._symbol_cooldown.clear()
             self._last_global_entry = 0.0
-            self._note("Novi sat. Kapital 200 €, naredba 1.000 € za 60 minuta, dnevnik prazan.")
+            self._note("Novi dan. Kapital 100 €, naredba 1.000 € i 1.000 trejdova za 24 sata.")
             save_wallet(self.wallet)
 
     def new_sample(self) -> None:
@@ -212,19 +222,20 @@ class Engine:
             return
         snap = self.last_snap
         equity = self.equity(snap) if snap is not None else self.wallet.cash
-        if equity >= self.wallet.target and snap is not None:
+        quota = self.wallet.trade_count >= MIN_TRADES
+        if equity >= self.wallet.target and quota and snap is not None:
             self._flatten(snap, "CILJ")
-            if self.equity(snap) >= self.wallet.target:
+            if self.equity(snap) >= self.wallet.target and self.wallet.trade_count >= MIN_TRADES:
                 self.wallet.halted = True
-                self.wallet.halt_reason = "Nalog izvršen. Cilj 1.000 € je na računu."
-                self._note("✅ Nalog izvršen. Cilj je na računu, ured staje.", telegram=True)
+                self.wallet.halt_reason = "Nalog izvršen. 1.000 € i 1.000 trejdova su na računu."
+                self._note("✅ Nalog izvršen. Cilj i kvota trejdova su ispunjeni.", telegram=True)
                 return
         if now >= self.wallet.started_at + self.wallet.horizon_s:
             self.wallet.halted = True
-            self.wallet.halt_reason = "Ured zatvoren. Sat je istekao, cilj nije ispunjen."
+            self.wallet.halt_reason = "Ured zatvoren. 24 sata je isteklo, cilj nije ispunjen."
             if snap is not None:
                 self._flatten(snap, "ROK")
-            self._note("⏱️ Ured zatvoren. Sat je istekao bez 1.000 €.", telegram=True)
+            self._note("⏱️ Ured zatvoren. Dan je istekao bez 1.000 € i 1.000 trejdova.", telegram=True)
             return
         if equity < MIN_STAKE_EUR and not self.wallet.positions:
             self.wallet.halted = True
@@ -256,7 +267,7 @@ class Engine:
         age_s = 0.0
         if snapshot.now_ms and position.opened_ms:
             age_s = (snapshot.now_ms - position.opened_ms) / 1000.0
-        if age_s >= 240 and position.mfe < 0.0015 and gain <= 0.0005:
+        if age_s >= SCRATCH_S and position.mfe < 0.0015 and gain <= 0.0005:
             self._sell(position, position.qty, bid, snapshot.books.get(position.symbol), "CAS")
             self._note(f"{position.symbol} stoji. Grebem ulaz i puštam kapital u sljedeću igru.")
             return False
@@ -304,6 +315,13 @@ class Engine:
             return
         if now - self._last_global_entry < GLOBAL_ENTRY_GAP_S:
             return
+        elapsed = max(30.0, now - self.wallet.started_at)
+        need_rate = MIN_TRADES / max(1.0, self.wallet.horizon_s)
+        have_rate = self.wallet.trade_count / elapsed
+        if have_rate >= need_rate:
+            self.wallet.doctrine.pace = 1.0
+        else:
+            self.wallet.doctrine.pace = min(2.5, need_rate / max(have_rate, 1e-4))
         held = {position.symbol for position in self.wallet.positions}
         ready: list = []
         for symbol in TRADABLE:
@@ -468,7 +486,11 @@ class Engine:
             },
         }
         self.wallet.closed.append(trade)
-        self.wallet.closed = self.wallet.closed[-500:]
+        self.wallet.trade_count += 1
+        if len(self.wallet.closed) > 2000:
+            drop = len(self.wallet.closed) - 2000
+            self.wallet.closed = self.wallet.closed[-2000:]
+            self.wallet.sample_from = max(0, self.wallet.sample_from - drop)
         sign = "+" if pnl >= 0 else ""
         self._note(
             f"{'✅' if pnl >= 0 else '❌'} {position.symbol} zatvoren {reason} · {sign}{_fmt_eur(pnl)}",

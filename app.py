@@ -131,7 +131,9 @@ def cockpit() -> None:
         metric_cols[1].metric("Rok", countdown(state["remaining_s"]))
         metric_cols = st.columns(2)
         metric_cols[0].metric("Gotovina", eur(float(state["cash"])))
-        metric_cols[1].metric("Trejdovi", str(stats.n), delta=f"{stats.wins}W / {stats.losses}L")
+        done = int(state.get("trade_count") or 0)
+        goal = int(state.get("trades_goal") or 1000)
+        metric_cols[1].metric("Trejdovi", f"{done} / {goal}", delta=f"{stats.wins}W / {stats.losses}L")
         st.markdown(
             f"<div class='progress' title='Put do 1.000 €'><span style='width:{progress * 100:.1f}%'></span></div>",
             unsafe_allow_html=True,
@@ -169,7 +171,7 @@ def cockpit() -> None:
         if st.button("Nastavi", disabled=not active, width="stretch"):
             engine.resume()
     with reset_col:
-        if st.button("Reset na 200 €", disabled=not active, width="stretch"):
+        if st.button("Reset na 100 €", disabled=not active, width="stretch"):
             engine.reset()
     with sample_col:
         if st.button("Novi Kelly uzorak", disabled=not active, width="stretch"):
@@ -185,9 +187,9 @@ def main() -> None:
         <div class="banner">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Svaki agent vodi svoju igru: knjiga, momentum,
-                nalet ili dip. Pamti je li ta igra zarađivala i gasi je kad gubi. Mrtav trejd grebe
-                za četiri minute. Papir, živa cijena. Nema jamstva.</p>
+                <p>NAREDBA: 100 € → 1.000 € u 24 sata, najmanje 1.000 trejdova. Tempo otvara protok
+                čim knjiga nije protiv nas. Svaki trejd odmah uči mozak. Mrtav ulaz grebe se za 50 sekundi.
+                Oba uvjeta moraju biti gotova. Papir, živa cijena. Nema jamstva.</p>
             </div>
             <em>TIER 1 TICK · TIER 2 RADAR · TIER 3 UČITELJ</em>
         </div>
