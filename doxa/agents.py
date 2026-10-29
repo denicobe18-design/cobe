@@ -111,6 +111,11 @@ def _stake(doctrine: Doctrine, stats: Stats, imbalance: float | None, sentiment:
         boost *= 0.7
         notes.append("strah")
     sized = min(doctrine.kelly_cap, base * boost)
+    if doctrine.blitz and not doctrine.stand_down:
+        floor = min(doctrine.blitz_floor, doctrine.kelly_cap)
+        if sized < floor:
+            sized = floor
+            notes.append("naredba")
     extra = (" · " + "+".join(notes)) if notes else ""
     text = f"f {_pct(sized, 1)} · p {_pct(win_rate, 0)} · b {_fmt(payoff, 2)} · {source}{extra}"
     return sized, text
@@ -129,12 +134,14 @@ def evaluate(
 ) -> Decision:
     """Jedan prolaz kroz svih 7 agenata za jedan simbol."""
     doctrine = doctrine.clamped()
+    c1 = _bars(snapshot, symbol, "1m")
     c15 = _bars(snapshot, symbol, "15m")
     c1h = _bars(snapshot, symbol, "1h")
     c4h = _bars(snapshot, symbol, "4h")
     book = _book(snapshot, symbol)
     funding = snapshot.funding.get(symbol)
 
+    px1 = closes(c1)
     px15 = closes(c15)
     px1h = closes(c1h)
     px4h = closes(c4h)
@@ -191,38 +198,66 @@ def evaluate(
         guard_value = _pct(delta, 2) if delta is not None else "—"
         guard_detail = guard_text
 
-    # --- 6 MTF (računa se prije skeptika, skeptik sudi prijedlog) ---
+    # --- 6 MTF. Blitz koristi zatvorenu 1m svijeću čim tok postoji. ---
+    ema21 = ema(px15, 21)
+    ema9_1 = ema(px1, 9)
+    rsi1 = rsi(px1, 14)
+    rsi1_prev = rsi(px1[:-1], 14) if len(px1) > 20 else None
+    fast = doctrine.blitz and len(c1) >= 30 and ema21 is not None
     missing = []
-    if ema50 is None:
-        missing.append("4h")
-    if rsi1h is None:
-        missing.append("1h")
-    if len(c15) < 20 or ema9 is None or rsi15 is None:
-        missing.append("15m")
-    tide = ema50 is not None and len(c4h) > 0 and c4h[-1].close > ema50
-    wave = (
-        rsi1h is not None
-        and rsi1h_prev is not None
-        and doctrine.mtf_rsi_low <= rsi1h <= doctrine.mtf_rsi_high
-        and rsi1h < rsi1h_prev
-    )
-    hook = (
-        ema9 is not None
-        and rsi15 is not None
-        and rsi15_prev is not None
-        and len(c15) > 0
-        and c15[-1].close > ema9
-        and rsi15 > rsi15_prev
-        and 48.0 <= rsi15 <= 68.0
-    )
-    turn = bullish_engulfing(c15) or hook
-    mtf_ok = tide and wave and turn and not missing
+    if fast:
+        if len(c15) < 21:
+            missing.append("15m")
+        tide = len(c15) > 0 and ema21 is not None and c15[-1].close > ema21
+        wave = True
+        hook = (
+            ema9_1 is not None
+            and rsi1 is not None
+            and rsi1_prev is not None
+            and c1[-1].close > ema9_1
+            and rsi1 > rsi1_prev
+            and 45.0 <= rsi1 <= 74.0
+        )
+        turn = bullish_engulfing(c1) or hook
+        mtf_ok = tide and turn and not missing
+    else:
+        if ema50 is None:
+            missing.append("4h")
+        if rsi1h is None:
+            missing.append("1h")
+        if len(c15) < 20 or ema9 is None or rsi15 is None:
+            missing.append("15m")
+        tide = ema50 is not None and len(c4h) > 0 and c4h[-1].close > ema50
+        wave = (
+            rsi1h is not None
+            and rsi1h_prev is not None
+            and doctrine.mtf_rsi_low <= rsi1h <= doctrine.mtf_rsi_high
+            and rsi1h < rsi1h_prev
+        )
+        hook = (
+            ema9 is not None
+            and rsi15 is not None
+            and rsi15_prev is not None
+            and len(c15) > 0
+            and c15[-1].close > ema9
+            and rsi15 > rsi15_prev
+            and 48.0 <= rsi15 <= 68.0
+        )
+        turn = bullish_engulfing(c15) or hook
+        mtf_ok = tide and wave and turn and not missing
     if missing:
         mtf_state, mtf_value = "idle", "—"
         mtf_detail = "Čekam svijeće: " + ", ".join(missing) + "."
+    elif mtf_ok and fast:
+        mtf_state, mtf_value = "hot", "1m"
+        mtf_detail = f"Blitz: 15m iznad EMA21 · 1m RSI {_fmt(rsi1, 1)} okret."
     elif mtf_ok:
         mtf_state, mtf_value = "hot", "3/3"
         mtf_detail = f"4h iznad EMA50 · 1h RSI {_fmt(rsi1h, 1)} pada · 15m okret."
+    elif fast:
+        lights = f"{'●' if tide else '○'}15m {'●' if turn else '○'}1m"
+        mtf_state, mtf_value = "armed", lights
+        mtf_detail = f"RSI 1m {_fmt(rsi1, 1)} · RSI 15m {_fmt(rsi15, 1)}. Čekam oba zelena."
     else:
         lights = f"{'●' if tide else '○'}4h {'●' if wave else '○'}1h {'●' if turn else '○'}15m"
         mtf_state, mtf_value = "armed", lights
@@ -234,12 +269,14 @@ def evaluate(
     # --- 3 Skeptik ---
     flags: list[str] = []
     if mtf_ok:
-        if volume_divergence(c15):
+        if volume_divergence(c1 if fast else c15):
             flags.append("volumen divergira")
         if funding is not None and funding > doctrine.funding_veto:
             flags.append(f"funding OKX {_pct(funding, 3)}")
-        if rsi4h is not None and rsi4h > doctrine.rsi_veto:
-            flags.append(f"RSI 4h {_fmt(rsi4h, 1)}")
+        hot_rsi = rsi15 if fast else rsi4h
+        hot_label = "RSI 15m" if fast else "RSI 4h"
+        if hot_rsi is not None and hot_rsi > doctrine.rsi_veto:
+            flags.append(f"{hot_label} {_fmt(hot_rsi, 1)}")
     veto = mtf_ok and len(flags) >= doctrine.skeptic_flags
     if not mtf_ok:
         skeptic_state, skeptic_value = "idle", "—"
@@ -262,8 +299,10 @@ def evaluate(
     else:
         trail_state, trail_value = "armed", f"{_fmt(doctrine.atr_mult, 1)}×ATR"
         trail_detail = (
-            f"SL −{_fmt(doctrine.sl_pct * 100, 1)}%. Na +3% breakeven, "
-            f"na +5% zatvaram {int(doctrine.partial_frac * 100)}%, ostatak { _fmt(doctrine.atr_mult, 1)}×ATR."
+            f"SL −{_fmt(doctrine.sl_pct * 100, 1)}%. "
+            f"Na +{_fmt(doctrine.be_trigger * 100, 1)}% breakeven, "
+            f"na +{_fmt(doctrine.partial_trigger * 100, 1)}% zatvaram {int(doctrine.partial_frac * 100)}%, "
+            f"ostatak {_fmt(doctrine.atr_mult, 1)}×ATR. Poluga { _fmt(doctrine.leverage, 0)}×."
         )
 
     # --- 5 Radar ---
@@ -331,7 +370,7 @@ def evaluate(
     elif missing:
         reason = "Nedovoljno svijeća."
     elif not mtf_ok:
-        reason = "MTF nije 3/3."
+        reason = "Blitz čeka 15m iznad EMA21 i 1m okret." if fast else "MTF nije 3/3."
     elif imbalance is None:
         reason = "Nema knjige naloga."
     elif imbalance <= doctrine.whale_block:
@@ -348,7 +387,7 @@ def evaluate(
         reason = "Tok podataka još nije spreman."
     else:
         allow = True
-        reason = "Ulaz: MTF 3/3, knjiga potvrđuje, skeptik šuti."
+        reason = "Ulaz: brzi 1m stack, knjiga potvrđuje, skeptik šuti." if fast else "Ulaz: MTF 3/3, knjiga potvrđuje, skeptik šuti."
         score = imbalance * 2.0 + stake + (0.4 if label == "EXTREME_HYPE" else 0.0)
 
     return Decision(

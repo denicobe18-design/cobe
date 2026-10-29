@@ -60,6 +60,16 @@ def apply_brutal_styles() -> None:
         }
         .hud span { color: #3ee0c5; }
         .rok { color: #ffb020; font-weight: 700; }
+        .scene.shut .iso, .scene.shut .lesson { filter: grayscale(.85) brightness(.55); }
+        .stamp {
+            position: absolute; z-index: 6; left: 50%; top: 46%;
+            transform: translate(-50%, -50%) rotate(-12deg);
+            border: 4px solid #ff3355; color: #ff3355;
+            font-weight: 800; letter-spacing: .18em; font-size: 1.55rem;
+            padding: .45rem .85rem; background: rgba(0,0,0,.55);
+            font-family: ui-monospace, "SFMono-Regular", monospace;
+        }
+        .stamp.won { border-color: #3ee0c5; color: #3ee0c5; }
         .iso {
             width: 560px; margin: 78px auto 0;
             display: grid; grid-template-columns: repeat(3, 168px); gap: 14px;

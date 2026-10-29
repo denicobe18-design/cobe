@@ -34,6 +34,8 @@ def office_html(
     teacher_state: str,
     win_rate: str,
     status: str,
+    shut: bool = False,
+    won: bool = False,
 ) -> str:
     by_id = {view.id: view for view in views}
     cells: list[str] = []
@@ -59,8 +61,14 @@ def office_html(
             if view is None:
                 continue
             cells.append(_agent_cell(view))
+    stamp = ""
+    if won:
+        stamp = "<div class='stamp won'>NALOG IZVRŠEN</div>"
+    elif shut:
+        stamp = "<div class='stamp'>URED ZATVOREN</div>"
+    scene = "scene shut" if shut or won else "scene"
     return (
-        "<section class='scene'>"
+        f"<section class='{scene}'>"
         "<div class='hud'>"
         "<div><span>DOXA</span> QUANT CORE</div>"
         f"<div class='rok'>⏱ ROK { _esc(countdown)}</div>"
@@ -68,6 +76,7 @@ def office_html(
         "</div>"
         "<div class='iso'>" + "".join(cells) + "</div>"
         f"<p class='lesson'>{_esc(lesson)}</p>"
+        f"{stamp}"
         "</section>"
     )
 

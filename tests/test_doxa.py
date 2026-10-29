@@ -248,6 +248,7 @@ class EngineTests(unittest.TestCase):
         )
 
     def test_open_charges_fee_and_trail_locks_profit(self) -> None:
+        doctrine = self.engine.wallet.doctrine
         snap = self._priced(99.98, 100.0)
         self.engine._open(self._decision(), snap, 1_800_000_000)
         self.assertEqual(len(self.engine.wallet.positions), 1)
@@ -255,12 +256,15 @@ class EngineTests(unittest.TestCase):
         self.assertLess(self.engine.wallet.cash, 185)
         self.assertGreater(position.fees, 0)
         entry = position.entry
-        up_be = self._priced(entry * 1.04, entry * 1.0402)
+        position.context["atr"] = 8.0
+        be_px = entry * (1.0 + doctrine.be_trigger + 0.001)
+        up_be = self._priced(be_px, be_px * 1.0002)
         self.assertTrue(self.engine._manage(position, up_be, False))
         self.assertAlmostEqual(position.sl, entry, places=4)
         self.assertFalse(position.partial_done)
         position.context["atr"] = 0.4
-        up_partial = self._priced(entry * 1.06, entry * 1.0602)
+        part_px = entry * (1.0 + doctrine.partial_trigger + 0.002)
+        up_partial = self._priced(part_px, part_px * 1.0002)
         self.assertTrue(self.engine._manage(position, up_partial, False))
         self.assertTrue(position.partial_done)
         self.assertLess(position.qty, position.initial_qty * 0.6)
@@ -270,6 +274,51 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(len(self.engine.wallet.closed), 1)
         self.assertEqual(self.engine.wallet.closed[0]["reason"], "TRAIL")
         self.assertGreater(self.engine.wallet.closed[0]["fees"], 0)
+
+    def test_leverage_round_trip_keeps_cash_near_stake(self) -> None:
+        snap = self._priced(99.98, 100.0)
+        before = self.engine.wallet.cash
+        self.engine._open(self._decision(), snap, 1_800_000_000)
+        position = self.engine.wallet.positions[0]
+        self.assertGreater(position.context["leverage"], 1)
+        notional = position.qty * position.entry
+        self.assertGreater(notional, position.context["margin"] * 5)
+        bid = snap.books["SOLUSDT"].bid or 0
+        self.engine._sell(position, position.qty, bid, snap.books["SOLUSDT"], "TEST")
+        self.assertGreater(self.engine.wallet.cash, 170)
+        self.assertLess(self.engine.wallet.cash, before)
+
+    def test_hour_without_target_closes_the_office(self) -> None:
+        self.engine.wallet.started_at = 1_000.0
+        snap = self._priced(99.98, 100.0)
+        self.engine.last_snap = snap
+        self.engine._expire(self.engine.wallet.started_at + self.engine.wallet.horizon_s + 1)
+        self.assertTrue(self.engine.wallet.halted)
+        self.assertIn("zatvoren", self.engine.wallet.halt_reason.lower())
+        self.engine.resume()
+        self.assertTrue(self.engine.wallet.halted)
+
+    def test_target_halts_as_filled_order(self) -> None:
+        self.engine.wallet.cash = 1000
+        snap = self._priced(99.98, 100.0)
+        self.engine.last_snap = snap
+        self.engine._expire(self.engine.wallet.started_at)
+        self.assertTrue(self.engine.wallet.halted)
+        self.assertIn("izvršen", self.engine.wallet.halt_reason.lower())
+
+    def test_old_mission_restarts_the_hour(self) -> None:
+        from doxa.config import HORIZON_S, MISSION_ID, START_CASH
+        from doxa.store import load_wallet, save_wallet
+
+        wallet = self.engine.wallet
+        wallet.mission = "10h"
+        wallet.cash = 50
+        wallet.horizon_s = 10 * 3600
+        save_wallet(wallet)
+        loaded = load_wallet()
+        self.assertEqual(loaded.mission, MISSION_ID)
+        self.assertEqual(loaded.cash, START_CASH)
+        self.assertEqual(loaded.horizon_s, HORIZON_S)
 
     def test_freeze_flattens_between_stop_and_entry(self) -> None:
         snap = self._priced(99.98, 100.0)

@@ -94,13 +94,13 @@ class Teacher:
             return [], last_relax_at
         quiet_for = now_s - last_entry_at
         since_relax = now_s - last_relax_at
-        if quiet_for < 30 * 60 or since_relax < 10 * 60:
+        if quiet_for < 8 * 60 or since_relax < 3 * 60:
             return [], last_relax_at
-        if doctrine.whale_min <= 0.62:
+        if doctrine.whale_min <= 0.50:
             return [], now_s
         doctrine.whale_min -= 0.01
         doctrine.whale_min = doctrine.clamped().whale_min
-        return ["30 min bez ulaza. Prag knjige spuštam za 0,01 da učim živo tržište."], now_s
+        return ["8 min bez ulaza. Prag knjige spuštam za 0,01 da ulaz stigne u roku."], now_s
 
     def queue_remote(self, doctrine: Doctrine, closed_tail: list[dict[str, Any]]) -> None:
         """Opcionalni vanjski učitelj. Ne dira izlaz iz trejda; rezultat se primijeni na sljedećem ticku."""

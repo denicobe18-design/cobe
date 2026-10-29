@@ -94,7 +94,14 @@ def cockpit() -> None:
     lesson = state["lessons"][-1] if state["lessons"] else "Učitelj čeka prvi trejd."
     teacher_state = "block" if state["stand_down"] else "teach"
     status = handle.hub.status
-    if state["halted"]:
+    halt_reason = str(state["halt_reason"] or "").lower()
+    won = "izvršen" in halt_reason
+    shut = won or "zatvoren" in halt_reason
+    if won:
+        status = "NALOG"
+    elif shut:
+        status = "ZATVOREN"
+    elif state["halted"]:
         status = "STOP"
     elif state["frozen"]:
         status = "FREEZE"
@@ -111,6 +118,8 @@ def cockpit() -> None:
                 teacher_state=teacher_state,
                 win_rate=win_rate,
                 status=f"{role} · {status}",
+                shut=shut,
+                won=won,
             ),
             unsafe_allow_html=True,
         )
@@ -174,9 +183,8 @@ def main() -> None:
         <div class="banner">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>Papirnati izazov 200 € → 1.000 € u 10 sati. Svijeće i knjiga su Binance Vision,
-                funding je OKX perpetual. Nalozi ne odlaze na burzu. Ulaz i izlaz plaćaju 0,10%
-                naknade i klizanje iz spreada. Prošli rub ne jamči sljedeći.</p>
+                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Ako rok istekne bez cilja, ured se zatvara.
+                Papir, živa cijena, 0,10% i klizanje. Nema jamstva.</p>
             </div>
             <em>TIER 1 TICK · TIER 2 RADAR · TIER 3 UČITELJ</em>
         </div>

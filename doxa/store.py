@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from doxa.config import HORIZON_S, START_CASH, TARGET_CASH, WALLET_PATH
+from doxa.config import HORIZON_S, MISSION_ID, START_CASH, TARGET_CASH, WALLET_PATH
 from doxa.types import Doctrine
 
 
@@ -50,6 +50,7 @@ class Wallet:
     frozen_until: float
     freeze_detail: str
     doctrine: Doctrine
+    mission: str
 
 
 def fresh_wallet(now: float | None = None) -> Wallet:
@@ -65,13 +66,14 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         log=[],
         halted=False,
         halt_reason="",
-        lessons=["Učitelj je budan. Doktrina je početna, uzorak je prazan."],
+        lessons=["Naredba: 200 € u 1.000 € za 60 minuta. Ako rok istekne, ured se zatvara."],
         sample_from=0,
         last_relax_at=clock,
         last_entry_at=clock,
         frozen_until=0.0,
         freeze_detail="",
         doctrine=Doctrine(),
+        mission=MISSION_ID,
     )
 
 
@@ -116,6 +118,7 @@ def wallet_from_dict(raw: dict[str, Any]) -> Wallet:
     wallet.frozen_until = float(raw.get("frozen_until", 0))
     wallet.freeze_detail = str(raw.get("freeze_detail") or "")
     wallet.doctrine = doctrine
+    wallet.mission = str(raw.get("mission") or "")
     return wallet
 
 
@@ -138,8 +141,8 @@ def peek_wallet() -> Wallet | None:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(raw, dict):
-        return None
+    if not isinstance(raw, dict) or str(raw.get("mission") or "") != MISSION_ID:
+        return fresh_wallet()
     return wallet_from_dict(raw)
 
 
@@ -152,9 +155,13 @@ def load_wallet() -> Wallet:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return fresh_wallet()
-    if not isinstance(raw, dict):
-        return fresh_wallet()
+        wallet = fresh_wallet()
+        save_wallet(wallet)
+        return wallet
+    if not isinstance(raw, dict) or str(raw.get("mission") or "") != MISSION_ID:
+        wallet = fresh_wallet()
+        save_wallet(wallet)
+        return wallet
     return wallet_from_dict(raw)
 
 

@@ -23,7 +23,7 @@ MIN_BARS: dict[str, int] = {"1m": 40, "15m": 40, "1h": 40, "4h": 60}
 
 INTERVALS: dict[str, tuple[str, ...]] = {
     GUARD_SYMBOL: ("1m", "15m"),
-    **{symbol: ("15m", "1h", "4h") for symbol in TRADABLE},
+    **{symbol: ("1m", "15m", "1h", "4h") for symbol in TRADABLE},
 }
 
 INTERVAL_MS: dict[str, int] = {
@@ -38,10 +38,11 @@ BOOK_LEVELS = 50
 TAKER_FEE = 0.001
 START_CASH = 200.0
 TARGET_CASH = 1000.0
-HORIZON_S = 10 * 60 * 60
+HORIZON_S = 60 * 60
+MISSION_ID = "blitz-1h"
 MIN_STAKE_EUR = 10.0
-ENTRY_COOLDOWN_S = 45.0
-GLOBAL_ENTRY_GAP_S = 20.0
+ENTRY_COOLDOWN_S = 70.0
+GLOBAL_ENTRY_GAP_S = 8.0
 FREEZE_COOLDOWN_S = 180.0
 
 # Spot koji nije geo-blokiran tamo gdje api.binance.com vraća 451.

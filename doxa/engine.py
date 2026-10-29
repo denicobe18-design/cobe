@@ -7,7 +7,7 @@ import time
 from typing import Any
 
 from doxa.agents import assess_btc, evaluate
-from doxa.config import GLOBAL_ENTRY_GAP_S, MIN_STAKE_EUR, START_CASH, TRADABLE
+from doxa.config import ENTRY_COOLDOWN_S, GLOBAL_ENTRY_GAP_S, MIN_STAKE_EUR, START_CASH, TRADABLE
 from doxa.indicators import atr as atr_indicator
 from doxa.notify import notify
 from doxa.store import Position, Wallet, fresh_wallet, load_wallet, save_wallet
@@ -174,8 +174,11 @@ class Engine:
     def resume(self) -> None:
         with self._lock:
             now = time.time()
-            if now >= self.wallet.started_at + self.wallet.horizon_s:
-                self._note("Rok izazova je prošao. Nastavak ne otvara nove ulaze.")
+            reason = self.wallet.halt_reason.lower()
+            deadline = now >= self.wallet.started_at + self.wallet.horizon_s
+            sealed = deadline or "zatvoren" in reason or "izvršen" in reason
+            if sealed:
+                self._note("Ured ostaje zatvoren. Samo Reset otvara novi sat.")
                 save_wallet(self.wallet)
                 return
             self.wallet.halted = False
@@ -188,7 +191,7 @@ class Engine:
             self.wallet = fresh_wallet()
             self._symbol_cooldown.clear()
             self._last_global_entry = 0.0
-            self._note("Izazov resetiran. Kapital 200 €, rok 10 sati, dnevnik prazan.")
+            self._note("Novi sat. Kapital 200 €, naredba 1.000 € za 60 minuta, dnevnik prazan.")
             save_wallet(self.wallet)
 
     def new_sample(self) -> None:
@@ -205,12 +208,26 @@ class Engine:
     def _expire(self, now: float) -> None:
         if self.wallet.halted:
             return
+        snap = self.last_snap
+        equity = self.equity(snap) if snap is not None else self.wallet.cash
+        if equity >= self.wallet.target and snap is not None:
+            self._flatten(snap, "CILJ")
+            if self.equity(snap) >= self.wallet.target:
+                self.wallet.halted = True
+                self.wallet.halt_reason = "Nalog izvršen. Cilj 1.000 € je na računu."
+                self._note("✅ Nalog izvršen. Cilj je na računu, ured staje.", telegram=True)
+                return
         if now >= self.wallet.started_at + self.wallet.horizon_s:
             self.wallet.halted = True
-            self.wallet.halt_reason = "Rok 10 sati je istekao"
-            if self.last_snap is not None:
-                self._flatten(self.last_snap, "ROK")
-            self._note("⏱️ Rok istekao. Pozicije su zatvorene, novi ulazi stoje.", telegram=True)
+            self.wallet.halt_reason = "Ured zatvoren. Sat je istekao, cilj nije ispunjen."
+            if snap is not None:
+                self._flatten(snap, "ROK")
+            self._note("⏱️ Ured zatvoren. Sat je istekao bez 1.000 €.", telegram=True)
+            return
+        if equity < MIN_STAKE_EUR and not self.wallet.positions:
+            self.wallet.halted = True
+            self.wallet.halt_reason = "Ured zatvoren. Kapital je ispod minimalnog uloga."
+            self._note("🛑 Ured zatvoren. Kapital je ispod minimalnog uloga.", telegram=True)
 
     def _manage_all(self, snapshot: MarketSnapshot, frozen: bool) -> None:
         still_open: list[Position] = []
@@ -247,7 +264,8 @@ class Engine:
             )
             if position.qty <= 0:
                 return False
-        bars = snapshot.candles.get(position.symbol, {}).get("15m", ())
+        series = snapshot.candles.get(position.symbol, {})
+        bars = series.get("1m") or series.get("15m") or ()
         live_atr = atr_indicator(bars, doctrine.atr_period) if bars else None
         if live_atr:
             position.context["atr"] = live_atr
@@ -256,6 +274,11 @@ class Engine:
             trail = position.peak - doctrine.atr_mult * float(atr_value)
             if trail > position.sl:
                 position.sl = trail
+        lev = float(position.context.get("leverage") or doctrine.leverage or 1.0)
+        adverse = (position.entry - bid) / position.entry
+        if lev > 1.0 and adverse >= 0.90 / lev:
+            self._sell(position, position.qty, bid, snapshot.books.get(position.symbol), "LIQ")
+            return False
         if bid <= position.sl:
             reason = "BTC_FREEZE" if frozen and bid < position.entry else "SL"
             if position.sl > position.entry * 1.001:
@@ -285,7 +308,7 @@ class Engine:
                 halted=False,
             )
             if decision.setup and not decision.allow:
-                self._symbol_cooldown[symbol] = now + 30.0
+                self._symbol_cooldown[symbol] = now + 12.0
             if decision.allow and (best is None or decision.score > best.score):
                 best = decision
         if best is None:
@@ -301,18 +324,21 @@ class Engine:
         slip = slippage(book, self.wallet.doctrine)
         fill = ask * (1.0 + slip)
         equity = self.equity(snapshot)
-        fraction = min(decision.stake_fraction, self.wallet.doctrine.kelly_cap)
-        stake = min(equity * fraction, self.wallet.cash * 0.92)
-        if stake < MIN_STAKE_EUR:
+        doctrine = self.wallet.doctrine
+        fraction = min(decision.stake_fraction, doctrine.kelly_cap)
+        budget = min(equity * fraction, self.wallet.cash * 0.92)
+        if budget < MIN_STAKE_EUR:
             return
-        fee_rate = self.wallet.doctrine.taker_fee
-        fee = stake * fee_rate / (1.0 + fee_rate)
-        notional = stake - fee
-        qty = notional / fill
-        if qty <= 0:
+        fee_rate = doctrine.taker_fee
+        leverage = max(1.0, float(doctrine.leverage))
+        margin = budget / (1.0 + leverage * fee_rate)
+        entry_fee = margin * leverage * fee_rate
+        qty = (margin * leverage) / fill
+        deployed = margin + entry_fee
+        if qty <= 0 or deployed > self.wallet.cash + 1e-9:
             return
-        sl = fill * (1.0 - self.wallet.doctrine.sl_pct)
-        tp = fill * (1.0 + self.wallet.doctrine.tp_pct)
+        sl = fill * (1.0 - doctrine.sl_pct)
+        tp = fill * (1.0 + doctrine.tp_pct)
         context = {
             "imbalance": decision.metrics.get("imbalance"),
             "veto_flags": list(decision.metrics.get("veto_flags") or []),
@@ -321,7 +347,10 @@ class Engine:
             "funding": decision.metrics.get("funding"),
             "atr": decision.metrics.get("atr"),
             "stake_fraction": fraction,
-            "initial_cost": stake,
+            "initial_cost": deployed,
+            "margin": margin,
+            "leverage": leverage,
+            "entry_fee": entry_fee,
         }
         position = Position(
             symbol=symbol,
@@ -330,8 +359,8 @@ class Engine:
             sl=sl,
             tp=tp,
             opened_ms=int(now * 1000),
-            fees=fee,
-            cost=stake,
+            fees=entry_fee,
+            cost=margin,
             peak=fill,
             mfe=0.0,
             partial_done=False,
@@ -339,14 +368,14 @@ class Engine:
             initial_qty=qty,
             context=context,
         )
-        self.wallet.cash -= stake
+        self.wallet.cash -= deployed
         self.wallet.positions.append(position)
         self.wallet.last_entry_at = now
         self._last_global_entry = now
-        self._symbol_cooldown[symbol] = now + 15 * 60
+        self._symbol_cooldown[symbol] = now + ENTRY_COOLDOWN_S
         self._note(
-            f"🎯 {symbol} long @ {_fmt_px(fill)} · ulog {_fmt_eur(stake)} · "
-            f"SL {_fmt_px(sl)} · TP {_fmt_px(tp)} · naknada {_fmt_eur(fee)}",
+            f"🎯 {symbol} long {leverage:.0f}× @ {_fmt_px(fill)} · margin {_fmt_eur(margin)} · "
+            f"SL {_fmt_px(sl)} · TP {_fmt_px(tp)} · naknada {_fmt_eur(entry_fee)}",
             telegram=True,
         )
 
@@ -354,21 +383,30 @@ class Engine:
         qty = min(qty, position.qty)
         if qty <= 0 or position.qty <= 0:
             return
+        if qty >= position.qty - 1e-12:
+            qty = position.qty
+            fraction = 1.0
+        else:
+            fraction = qty / position.qty
         slip = slippage(book, self.wallet.doctrine)
         fill = price * (1.0 - slip)
-        notional = fill * qty
-        fee = notional * self.wallet.doctrine.taker_fee
-        proceeds = notional - fee
-        unit = position.cost / position.qty
-        basis = unit * qty
-        pnl = proceeds - basis
+        fee_rate = self.wallet.doctrine.taker_fee
+        exit_fee = fill * qty * fee_rate
+        margin = float(position.context.get("margin") or 0.0)
+        entry_fee_left = float(position.context.get("entry_fee") or 0.0)
+        margin_part = margin * fraction
+        entry_fee_part = entry_fee_left * fraction
+        price_pnl = (fill - position.entry) * qty
+        returned = max(0.0, margin_part + price_pnl - exit_fee)
+        pnl = returned - margin_part - entry_fee_part
         position.realized += pnl
-        position.fees += fee
-        position.cost -= basis
+        position.fees += exit_fee
+        position.context["margin"] = max(0.0, margin - margin_part)
+        position.context["entry_fee"] = max(0.0, entry_fee_left - entry_fee_part)
+        position.cost = max(0.0, position.cost - margin_part)
         position.qty -= qty
-        self.wallet.cash += proceeds
-        closed_all = position.qty <= 1e-12
-        if closed_all:
+        self.wallet.cash += returned
+        if position.qty <= 1e-12:
             position.qty = 0.0
             self._archive(position, fill, reason)
 
@@ -437,9 +475,11 @@ class Engine:
             return 0.0
         book = snapshot.books.get(position.symbol)
         slip = slippage(book, self.wallet.doctrine)
-        gross = bid * (1.0 - slip) * position.qty
-        fee = gross * self.wallet.doctrine.taker_fee
-        return max(0.0, gross - fee)
+        fill = bid * (1.0 - slip)
+        fee = fill * position.qty * self.wallet.doctrine.taker_fee
+        margin = float(position.context.get("margin") or position.cost or 0.0)
+        price_pnl = (fill - position.entry) * position.qty
+        return max(0.0, margin + price_pnl - fee)
 
     def _mark_equity(self, snapshot: MarketSnapshot, now: float) -> None:
         if now - self._last_equity_mark < 10:
@@ -468,9 +508,13 @@ class Engine:
     def _trail_note(self, position: Position) -> str:
         if position.partial_done and position.sl > position.entry:
             return f"50% u džepu. Trail SL {_fmt_px(position.sl)}."
+        doctrine = self.wallet.doctrine
         if position.sl >= position.entry * 0.999:
-            return "Breakeven postavljen. Čekam +5% za pola pozicije."
-        return f"Početni SL {_fmt_px(position.sl)} · TP {_fmt_px(position.tp)}."
+            return f"Breakeven postavljen. Čekam {_fmt_pct(doctrine.partial_trigger)} za pola pozicije."
+        return (
+            f"Početni SL {_fmt_px(position.sl)} · TP {_fmt_px(position.tp)} · "
+            f"{doctrine.leverage:.0f}×."
+        )
 
     def _note(self, text: str, telegram: bool = False) -> None:
         self.wallet.log.append({"t": time.time(), "text": text})

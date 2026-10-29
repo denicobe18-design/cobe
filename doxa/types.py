@@ -64,8 +64,11 @@ class AgentView:
 class Doctrine:
     """Živi parametri. Učitelj ih miče samo unutar tvrdog raspona."""
 
-    whale_min: float = 0.75
-    whale_block: float = 0.38
+    whale_min: float = 0.55
+    whale_block: float = 0.40
+    blitz: bool = True
+    blitz_floor: float = 0.40
+    leverage: float = 10.0
     whale_boost: float = 1.25
     btc_drop: float = 0.007
     btc_vol_mult: float = 3.0
@@ -74,14 +77,14 @@ class Doctrine:
     rsi_veto: float = 65.0
     funding_veto: float = 0.0005
     atr_period: int = 14
-    atr_mult: float = 2.0
-    be_trigger: float = 0.03
-    partial_trigger: float = 0.05
+    atr_mult: float = 1.4
+    be_trigger: float = 0.008
+    partial_trigger: float = 0.014
     partial_frac: float = 0.5
-    sl_pct: float = 0.02
-    tp_pct: float = 0.045
+    sl_pct: float = 0.006
+    tp_pct: float = 0.018
     kelly_fraction: float = 0.5
-    kelly_cap: float = 0.30
+    kelly_cap: float = 0.55
     sentiment_boost: float = 1.5
     mtf_rsi_low: float = 40.0
     mtf_rsi_high: float = 55.0
@@ -90,13 +93,15 @@ class Doctrine:
     prior_win: float = 0.52
     prior_payoff: float = 1.40
     min_trades: int = 10
-    max_positions: int = 2
+    max_positions: int = 3
     max_spread: float = 0.0015
     stand_down: bool = False
 
     def clamped(self) -> Doctrine:
         limits = {
-            "whale_min": (0.60, 0.90),
+            "whale_min": (0.48, 0.85),
+            "blitz_floor": (0.20, 0.55),
+            "leverage": (1.0, 12.0),
             "whale_block": (0.25, 0.50),
             "whale_boost": (1.0, 1.40),
             "btc_drop": (0.004, 0.015),
@@ -106,18 +111,19 @@ class Doctrine:
             "funding_veto": (0.0002, 0.0015),
             "atr_mult": (1.2, 3.5),
             "kelly_fraction": (0.15, 0.50),
-            "kelly_cap": (0.08, 0.30),
+            "kelly_cap": (0.08, 0.60),
             "sentiment_boost": (1.0, 1.50),
             "mtf_rsi_low": (35.0, 48.0),
             "mtf_rsi_high": (50.0, 62.0),
-            "sl_pct": (0.012, 0.03),
-            "tp_pct": (0.03, 0.08),
+            "sl_pct": (0.004, 0.03),
+            "tp_pct": (0.01, 0.08),
         }
         data = dict(self.__dict__)
         for key, (low, high) in limits.items():
             value = data[key]
             data[key] = max(low, min(high, value))
         data["stand_down"] = bool(data["stand_down"])
+        data["blitz"] = bool(data.get("blitz", True))
         data["skeptic_flags"] = int(round(data["skeptic_flags"]))
         return Doctrine(**data)
 
