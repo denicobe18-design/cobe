@@ -12,6 +12,13 @@ nije potreban.
 namješta. Stari dnevnik od 10 sati se na prvom pokretanju zamjenjuje novim
 satom od 200 €.
 
+Svaki od sedam agenata ima zaseban mozak: vlastite težine, prag i pomak
+doktrine. Na ulazu glasa sam. Nakon zatvaranja radi jedan korak učenja i,
+ako serija drži ili puca, sam digne ili spusti prag. Motor u jednom ticku
+otvara sve parove koje se jato složi, do osam odjednom, i zatvara čim cijena
+dotakne cilj. Ulog po trejdu je manji da stane više pozicija. Brza dobit i
+dalje ovisi o živoj cijeni.
+
 ## Što radi
 
 Sedam agenata glasa, osmi uči:
@@ -19,10 +26,10 @@ Sedam agenata glasa, osmi uči:
 1. **Whale** — neravnoteža L2 knjige (lokalni order book iz diff-deptha, 50 razina).
 2. **BTC Guard** — pad BTC-a u 3 minute uz volumen; diže stop na ulaz i zabranjuje nove kupnje.
 3. **Skeptik** — veto ako se poklope dvije crvene zastavice (volumen, funding, RSI).
-4. **Trail** — na +0,8% breakeven, na +1,4% pola pozicije, ostatak 1,4×ATR. Početni stop je 0,6%, cilj 1,8%.
+4. **Trail** — na +0,45% breakeven, na +0,7% zatvara 65%, ostatak 1,2×ATR. Početni stop je 0,45%, cilj 1,2% i tada se ostatak odmah zatvara.
 5. **Radar** — brzi lokalni skor cijene, knjige i fundinga. Diže ulog samo unutar Kelly kapice.
 6. **MTF** — brzi ulaz: 15m iznad EMA21 i 1m okret. Bez 1m svijeća ostaje stari 4h/1h/15m stack.
-7. **Kelly** — pod naredbe je donji ulog 40% kapitala, papirnata poluga 10×. Gotovina izlazi samo kao margin plus naknada, ne cijeli nominal.
+7. **Kelly** — donji ulog je 12% da stane više pozicija odjednom, papirnata poluga 10×. Gotovina izlazi samo kao margin plus naknada, ne cijeli nominal.
 8. **Učitelj** — nakon svakog zatvaranja miče pragove unutar tvrdih granica, u istom procesu.
 
 ## Pokretanje

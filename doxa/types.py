@@ -67,7 +67,7 @@ class Doctrine:
     whale_min: float = 0.55
     whale_block: float = 0.40
     blitz: bool = True
-    blitz_floor: float = 0.40
+    blitz_floor: float = 0.12
     leverage: float = 10.0
     whale_boost: float = 1.25
     btc_drop: float = 0.007
@@ -77,12 +77,12 @@ class Doctrine:
     rsi_veto: float = 65.0
     funding_veto: float = 0.0005
     atr_period: int = 14
-    atr_mult: float = 1.4
-    be_trigger: float = 0.008
-    partial_trigger: float = 0.014
-    partial_frac: float = 0.5
-    sl_pct: float = 0.006
-    tp_pct: float = 0.018
+    atr_mult: float = 1.2
+    be_trigger: float = 0.0045
+    partial_trigger: float = 0.007
+    partial_frac: float = 0.65
+    sl_pct: float = 0.0045
+    tp_pct: float = 0.012
     kelly_fraction: float = 0.5
     kelly_cap: float = 0.55
     sentiment_boost: float = 1.5
@@ -93,14 +93,14 @@ class Doctrine:
     prior_win: float = 0.52
     prior_payoff: float = 1.40
     min_trades: int = 10
-    max_positions: int = 3
+    max_positions: int = 8
     max_spread: float = 0.0015
     stand_down: bool = False
 
     def clamped(self) -> Doctrine:
         limits = {
             "whale_min": (0.48, 0.85),
-            "blitz_floor": (0.20, 0.55),
+            "blitz_floor": (0.06, 0.40),
             "leverage": (1.0, 12.0),
             "whale_block": (0.25, 0.50),
             "whale_boost": (1.0, 1.40),

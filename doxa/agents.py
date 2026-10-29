@@ -1,7 +1,8 @@
-"""Sedam agenata. Svaki vraća čitljiv status; ulaz prolazi samo ako svi gateovi puste."""
+"""Sedam agenata. Svaki ima vlastiti mozak; ulaz ide kad se jato složi."""
 
 from __future__ import annotations
 
+from doxa.brains import Brain, default_brains, tune
 from doxa.config import GUARD_SYMBOL
 from doxa.indicators import (
     atr,
@@ -121,6 +122,13 @@ def _stake(doctrine: Doctrine, stats: Stats, imbalance: float | None, sentiment:
     return sized, text
 
 
+def _mind(brain: Brain, features: list[float]) -> tuple[str, bool, float]:
+    yes, probability = brain.vote(features)
+    mark = "DA" if yes else "NE"
+    text = f" Mozak {mark} {_pct(probability, 0)} · {brain.seen} naučenih · gen {brain.generation}."
+    return text, yes, probability
+
+
 def evaluate(
     snapshot: MarketSnapshot,
     symbol: str,
@@ -131,9 +139,12 @@ def evaluate(
     freeze_detail: str = "",
     halted: bool = False,
     position_note: str = "",
+    brains: dict[str, Brain] | None = None,
 ) -> Decision:
     """Jedan prolaz kroz svih 7 agenata za jedan simbol."""
     doctrine = doctrine.clamped()
+    minds = brains if brains is not None else default_brains()
+    tune(doctrine, minds)
     c1 = _bars(snapshot, symbol, "1m")
     c15 = _bars(snapshot, symbol, "15m")
     c1h = _bars(snapshot, symbol, "1h")
@@ -325,6 +336,83 @@ def evaluate(
         kelly_state, kelly_value = "armed", _pct(stake, 1)
         kelly_detail = stake_text
 
+    imbalance_x = 0.0 if imbalance is None else float(imbalance)
+    whale_note, whale_yes, whale_p = _mind(
+        minds["whale"],
+        [
+            imbalance_x,
+            1.0 if imbalance is not None and imbalance >= doctrine.whale_min else 0.0,
+            1.0 if spread is None or spread <= doctrine.max_spread else 0.0,
+            1.0,
+        ],
+    )
+    guard_note, _guard_yes, guard_p = _mind(
+        minds["guard"],
+        [
+            1.0 if delta is not None and delta > -doctrine.btc_drop else 0.0,
+            0.0 if triggered else 1.0,
+            0.5 if ratio is None else max(0.0, min(1.0, 1.0 - ratio / 6.0)),
+            1.0,
+        ],
+    )
+    mtf_note, mtf_yes, mtf_p = _mind(
+        minds["mtf"],
+        [
+            1.0 if tide else 0.0,
+            1.0 if turn else 0.0,
+            1.0 if wave or fast else 0.0,
+            0.0 if missing else 1.0,
+        ],
+    )
+    if mtf_ok:
+        skeptic_features = [
+            0.0 if veto else 1.0,
+            max(0.0, 1.0 - len(flags) / 2.0),
+            1.0 if funding is None or funding <= doctrine.funding_veto else 0.0,
+            0.0 if any("RSI" in flag for flag in flags) else 1.0,
+        ]
+    else:
+        skeptic_features = [0.2, 0.2, 0.5, 0.2]
+    skeptic_note, skeptic_yes, skeptic_p = _mind(minds["skeptic"], skeptic_features)
+    trail_note, trail_yes, trail_p = _mind(
+        minds["trail"],
+        [1.0, 1.0, 0.4 if position_note else 1.0, 1.0],
+    )
+    radar_note, radar_yes, radar_p = _mind(
+        minds["radar"],
+        [
+            velocity / 100.0,
+            0.0 if label == "FEAR" else 1.0,
+            1.0 if label in {"HYPE", "EXTREME_HYPE"} else 0.45,
+            1.0 if (ret15 or 0) > 0 else 0.3,
+        ],
+    )
+    kelly_note, kelly_yes, kelly_p = _mind(
+        minds["kelly"],
+        [
+            1.0 if stake > 0 else 0.0,
+            max(0.0, min(1.0, stake / 0.25)),
+            0.0 if doctrine.stand_down else 1.0,
+            1.0,
+        ],
+    )
+    whale_detail += whale_note
+    guard_detail += guard_note
+    mtf_detail += mtf_note
+    skeptic_detail += skeptic_note
+    trail_detail += trail_note
+    radar_detail += radar_note
+    kelly_detail += kelly_note
+    mind_pack = {
+        "whale": (whale_yes, whale_p),
+        "guard": (_guard_yes, guard_p),
+        "mtf": (mtf_yes, mtf_p),
+        "skeptic": (skeptic_yes, skeptic_p),
+        "trail": (trail_yes, trail_p),
+        "radar": (radar_yes, radar_p),
+        "kelly": (kelly_yes, kelly_p),
+    }
+
     views = (
         AgentView("whale", whale_state, "L2", "WHALE", whale_value, whale_detail),
         AgentView("guard", guard_state, "BTC", "GUARD", guard_value, guard_detail),
@@ -354,12 +442,64 @@ def evaluate(
         "tide": tide,
         "wave": wave,
         "turn": turn,
+        "brains": {
+            "whale": {
+                "x": [
+                    imbalance_x,
+                    1.0 if imbalance is not None and imbalance >= doctrine.whale_min else 0.0,
+                    1.0 if spread is None or spread <= doctrine.max_spread else 0.0,
+                    1.0,
+                ],
+                "p": whale_p,
+                "yes": whale_yes,
+            },
+            "guard": {
+                "x": [
+                    1.0 if delta is not None and delta > -doctrine.btc_drop else 0.0,
+                    0.0 if triggered else 1.0,
+                    0.5 if ratio is None else max(0.0, min(1.0, 1.0 - ratio / 6.0)),
+                    1.0,
+                ],
+                "p": guard_p,
+                "yes": _guard_yes,
+            },
+            "mtf": {
+                "x": [1.0 if tide else 0.0, 1.0 if turn else 0.0, 1.0 if wave or fast else 0.0, 0.0 if missing else 1.0],
+                "p": mtf_p,
+                "yes": mtf_yes,
+            },
+            "skeptic": {"x": skeptic_features, "p": skeptic_p, "yes": skeptic_yes},
+            "trail": {"x": [1.0, 1.0, 0.4 if position_note else 1.0, 1.0], "p": trail_p, "yes": trail_yes},
+            "radar": {
+                "x": [
+                    velocity / 100.0,
+                    0.0 if label == "FEAR" else 1.0,
+                    1.0 if label in {"HYPE", "EXTREME_HYPE"} else 0.45,
+                    1.0 if (ret15 or 0) > 0 else 0.3,
+                ],
+                "p": radar_p,
+                "yes": radar_yes,
+            },
+            "kelly": {
+                "x": [
+                    1.0 if stake > 0 else 0.0,
+                    max(0.0, min(1.0, stake / 0.25)),
+                    0.0 if doctrine.stand_down else 1.0,
+                    1.0,
+                ],
+                "p": kelly_p,
+                "yes": kelly_yes,
+            },
+        },
     }
 
+    pack_names = ("whale", "mtf", "skeptic", "radar", "kelly", "trail")
+    pack_yes = [name for name in pack_names if mind_pack[name][0]]
     reason = "Nema setupa."
     allow = False
-    setup = bool(mtf_ok)
+    setup = bool(mtf_ok or (mtf_yes and whale_yes))
     score = 0.0
+    agreed = len(pack_yes) >= 4 and whale_yes and (mtf_ok or mtf_yes)
 
     if halted:
         reason = "Motor je ugašen."
@@ -369,14 +509,10 @@ def evaluate(
         reason = "Učitelj: stojim, uzorak nema ruba."
     elif missing:
         reason = "Nedovoljno svijeća."
-    elif not mtf_ok:
-        reason = "Blitz čeka 15m iznad EMA21 i 1m okret." if fast else "MTF nije 3/3."
     elif imbalance is None:
         reason = "Nema knjige naloga."
     elif imbalance <= doctrine.whale_block:
         reason = "Whale: ask zid, ulaz odbačen."
-    elif imbalance < doctrine.whale_min:
-        reason = f"Whale čeka zid iznad {_pct(doctrine.whale_min, 0)}."
     elif spread is not None and spread > doctrine.max_spread:
         reason = f"Spread {_pct(spread, 2)} jede naknadu."
     elif veto:
@@ -385,10 +521,17 @@ def evaluate(
         reason = "Kelly ne da ulog."
     elif not snapshot.ready and snapshot.hub_status != "TEST":
         reason = "Tok podataka još nije spreman."
-    else:
+    elif agreed:
         allow = True
-        reason = "Ulaz: brzi 1m stack, knjiga potvrđuje, skeptik šuti." if fast else "Ulaz: MTF 3/3, knjiga potvrđuje, skeptik šuti."
-        score = imbalance * 2.0 + stake + (0.4 if label == "EXTREME_HYPE" else 0.0)
+        names = ", ".join(pack_yes)
+        reason = f"Jato {len(pack_yes)}/6 ({names}). Brzi ulaz, mozgovi se slažu."
+        score = sum(item[1] for item in mind_pack.values()) + stake
+    elif not mtf_ok and not mtf_yes:
+        reason = "Blitz čeka 15m iznad EMA21 i 1m okret." if fast else "MTF nije 3/3."
+    elif not whale_yes:
+        reason = f"Whale mozak čeka jači zid od {_pct(doctrine.whale_min, 0)}."
+    else:
+        reason = f"Mozgovi {len(pack_yes)}/6. Čekam jače slaganje."
 
     return Decision(
         symbol=symbol,

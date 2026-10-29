@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from doxa.agents import assess_btc, evaluate
+from doxa.brains import brains_to_plain, learn_pack
 from doxa.config import ENTRY_COOLDOWN_S, GLOBAL_ENTRY_GAP_S, MIN_STAKE_EUR, START_CASH, TRADABLE
 from doxa.indicators import atr as atr_indicator
 from doxa.notify import notify
@@ -142,6 +143,7 @@ class Engine:
                 "closed_n": len(self.wallet.closed),
                 "stats": stats,
                 "doctrine": Doctrine(**self.wallet.doctrine.__dict__),
+                "brains": brains_to_plain(self.wallet.brains),
                 "stand_down": self.wallet.doctrine.stand_down,
                 "sample_from": self.wallet.sample_from,
             }
@@ -251,6 +253,9 @@ class Engine:
         if position.mfe >= doctrine.be_trigger and position.sl < position.entry:
             position.sl = position.entry
             self._note(f"{position.symbol} stop dignut na ulaz. Rizik je nula.")
+        if bid >= position.tp and position.qty > 0:
+            self._sell(position, position.qty, bid, snapshot.books.get(position.symbol), "TP")
+            return False
         if position.mfe >= doctrine.partial_trigger and not position.partial_done:
             before = position.realized
             qty = position.qty * doctrine.partial_frac
@@ -293,7 +298,7 @@ class Engine:
         if now - self._last_global_entry < GLOBAL_ENTRY_GAP_S:
             return
         held = {position.symbol for position in self.wallet.positions}
-        best = None
+        ready: list = []
         for symbol in TRADABLE:
             if symbol in held:
                 continue
@@ -306,14 +311,24 @@ class Engine:
                 self.stats(),
                 frozen=False,
                 halted=False,
+                brains=self.wallet.brains,
             )
             if decision.setup and not decision.allow:
-                self._symbol_cooldown[symbol] = now + 12.0
-            if decision.allow and (best is None or decision.score > best.score):
-                best = decision
-        if best is None:
-            return
-        self._open(best, snapshot, now)
+                self._symbol_cooldown[symbol] = now + 8.0
+            if decision.allow:
+                ready.append(decision)
+        ready.sort(key=lambda item: item.score, reverse=True)
+        opened = False
+        for decision in ready:
+            if len(self.wallet.positions) >= self.wallet.doctrine.max_positions:
+                break
+            if self.wallet.cash < MIN_STAKE_EUR:
+                break
+            before = len(self.wallet.positions)
+            self._open(decision, snapshot, now)
+            opened = opened or len(self.wallet.positions) > before
+        if opened:
+            self._last_global_entry = now
 
     def _open(self, decision, snapshot: MarketSnapshot, now: float) -> None:
         symbol = decision.symbol
@@ -326,7 +341,9 @@ class Engine:
         equity = self.equity(snapshot)
         doctrine = self.wallet.doctrine
         fraction = min(decision.stake_fraction, doctrine.kelly_cap)
-        budget = min(equity * fraction, self.wallet.cash * 0.92)
+        slots = max(1, doctrine.max_positions - len(self.wallet.positions))
+        slot_cap = min(0.92, 0.90 / slots)
+        budget = min(equity * fraction, self.wallet.cash * slot_cap)
         if budget < MIN_STAKE_EUR:
             return
         fee_rate = doctrine.taker_fee
@@ -351,6 +368,7 @@ class Engine:
             "margin": margin,
             "leverage": leverage,
             "entry_fee": entry_fee,
+            "brains": decision.metrics.get("brains") or {},
         }
         position = Position(
             symbol=symbol,
@@ -455,6 +473,9 @@ class Engine:
             payoff = 5.0
         else:
             payoff = 0.0
+        learned = learn_pack(self.wallet.brains, position.context, pnl, pnl_pct)
+        if learned:
+            self._lesson("Mozgovi: " + " · ".join(learned))
         lessons = self.teacher.review_close(
             self.wallet.doctrine,
             pnl=pnl,

@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from doxa.brains import Brain, default_brains, restore_brains
 from doxa.config import HORIZON_S, MISSION_ID, START_CASH, TARGET_CASH, WALLET_PATH
 from doxa.types import Doctrine
 
@@ -51,6 +52,8 @@ class Wallet:
     freeze_detail: str
     doctrine: Doctrine
     mission: str
+    brains: dict[str, Brain]
+    pack: int
 
 
 def fresh_wallet(now: float | None = None) -> Wallet:
@@ -66,7 +69,10 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         log=[],
         halted=False,
         halt_reason="",
-        lessons=["Naredba: 200 € u 1.000 € za 60 minuta. Ako rok istekne, ured se zatvara."],
+        lessons=[
+            "Naredba: 200 € u 1.000 € za 60 minuta. Ako rok istekne, ured se zatvara.",
+            "Svaki agent ima vlastiti mozak. Uči iz svakog zatvaranja i sam miče prag.",
+        ],
         sample_from=0,
         last_relax_at=clock,
         last_entry_at=clock,
@@ -74,6 +80,8 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         freeze_detail="",
         doctrine=Doctrine(),
         mission=MISSION_ID,
+        brains=default_brains(),
+        pack=2,
     )
 
 
@@ -119,7 +127,25 @@ def wallet_from_dict(raw: dict[str, Any]) -> Wallet:
     wallet.freeze_detail = str(raw.get("freeze_detail") or "")
     wallet.doctrine = doctrine
     wallet.mission = str(raw.get("mission") or "")
+    wallet.brains = restore_brains(raw.get("brains"))
+    wallet.pack = int(raw.get("pack") or 1)
+    if wallet.pack < 2:
+        _upgrade_pack(wallet.doctrine)
+        wallet.pack = 2
     return wallet
+
+
+def _upgrade_pack(doctrine: Doctrine) -> None:
+    """Stari sat drži prevelik ulog za jato. Jednom ga rastavi na više brzih ulaza."""
+    doctrine.max_positions = max(8, int(doctrine.max_positions))
+    doctrine.blitz_floor = min(float(doctrine.blitz_floor), 0.12)
+    doctrine.tp_pct = min(float(doctrine.tp_pct), 0.012)
+    doctrine.sl_pct = min(float(doctrine.sl_pct), 0.005)
+    doctrine.be_trigger = min(float(doctrine.be_trigger), 0.0045)
+    doctrine.partial_trigger = min(float(doctrine.partial_trigger), 0.007)
+    doctrine.atr_mult = min(float(doctrine.atr_mult), 1.3)
+    doctrine.partial_frac = max(float(doctrine.partial_frac), 0.65)
+    doctrine.__dict__.update(doctrine.clamped().__dict__)
 
 
 def wallet_to_dict(wallet: Wallet) -> dict[str, Any]:

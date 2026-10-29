@@ -8,6 +8,7 @@ from datetime import timedelta
 import streamlit as st
 
 from doxa.agents import evaluate
+from doxa.brains import restore_brains
 from doxa.config import GUARD_SYMBOL, TRADABLE
 from doxa.runtime import ensure_started
 from doxa.store import peek_wallet
@@ -89,6 +90,7 @@ def cockpit() -> None:
         freeze_detail=state["freeze_detail"],
         halted=state["halted"],
         position_note=note,
+        brains=restore_brains(state.get("brains")),
     )
     win_rate = pct(stats.win_rate) if stats.n else "prior"
     lesson = state["lessons"][-1] if state["lessons"] else "Učitelj čeka prvi trejd."
@@ -183,8 +185,9 @@ def main() -> None:
         <div class="banner">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Ako rok istekne bez cilja, ured se zatvara.
-                Papir, živa cijena, 0,10% i klizanje. Nema jamstva.</p>
+                <p>NAREDBA: 200 € → 1.000 € u 60 minuta. Svaki agent ima vlastiti mozak koji sam glasa,
+                uči iz zatvorenih trejdova i miče svoj prag. Ulaze u više parova odjednom i brzo
+                zaključavaju dobit. Papir, živa cijena. Nema jamstva.</p>
             </div>
             <em>TIER 1 TICK · TIER 2 RADAR · TIER 3 UČITELJ</em>
         </div>

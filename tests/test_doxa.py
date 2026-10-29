@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from doxa.agents import assess_btc, evaluate
+from doxa.brains import default_brains, learn_pack, tune
 from doxa.engine import Engine
 from doxa.indicators import atr, bullish_engulfing, ema, fractional_kelly, order_book_imbalance, rsi
 from doxa.orderbook import OrderBook
@@ -205,6 +206,34 @@ class RuntimeTests(unittest.TestCase):
                 os.environ["DOXA_LOCK"] = previous
 
 
+class BrainTests(unittest.TestCase):
+    def test_each_brain_learns_and_shifts_its_own_knob(self) -> None:
+        brains = default_brains()
+        whale = brains["whale"]
+        before_weight = whale.weights[0]
+        before_threshold = whale.threshold
+        features = [0.9, 1.0, 1.0, 1.0]
+        self.assertTrue(whale.vote(features)[0])
+        context = {
+            "brains": {
+                name: {"x": features, "p": 0.8, "yes": True}
+                for name in brains
+            }
+        }
+        notes = learn_pack(brains, context, pnl=-3.0, pnl_pct=-0.04)
+        self.assertEqual(len(notes), 7)
+        self.assertLess(whale.weights[0], before_weight)
+        self.assertGreater(whale.threshold, before_threshold)
+        self.assertGreater(whale.shift, 0)
+        self.assertEqual(whale.generation, 1)
+        doctrine = Doctrine()
+        base = doctrine.whale_min
+        tune(doctrine, brains)
+        self.assertGreater(doctrine.whale_min, base)
+        self.assertEqual(brains["mtf"].seen, 1)
+        self.assertNotEqual(brains["kelly"].shift, 0)
+
+
 class EngineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
@@ -275,6 +304,52 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.engine.wallet.closed[0]["reason"], "TRAIL")
         self.assertGreater(self.engine.wallet.closed[0]["fees"], 0)
 
+    def test_target_price_locks_the_trade(self) -> None:
+        snap = self._priced(99.98, 100.0)
+        self.engine._open(self._decision(), snap, 1_800_000_000)
+        position = self.engine.wallet.positions[0]
+        hit = self._priced(position.tp + 0.05, position.tp + 0.2)
+        self.assertFalse(self.engine._manage(position, hit, False))
+        self.assertEqual(self.engine.wallet.closed[-1]["reason"], "TP")
+
+    def test_opens_several_symbols_in_one_tick(self) -> None:
+        import doxa.engine as engine_mod
+
+        def fake(snapshot, symbol, doctrine, stats, **kwargs):
+            allow = symbol in {"SOLUSDT", "ETHUSDT", "BNBUSDT"}
+            return Decision(
+                symbol=symbol,
+                allow=allow,
+                reason="test",
+                stake_fraction=0.12 if allow else 0.0,
+                score=1.0,
+                setup=True,
+                views=(),
+                metrics={"imbalance": 0.8, "veto_flags": [], "sentiment": "HYPE", "atr": 1.0, "brains": {}},
+            )
+
+        book = BookTop(((99.98, 5.0),), ((100.0, 5.0),), 1, True)
+        names = ("SOLUSDT", "ETHUSDT", "BNBUSDT")
+        snap = MarketSnapshot(
+            now_ms=1_800_000_000_000,
+            books={name: book for name in names},
+            candles={},
+            forming={},
+            live={name: 99.98 for name in names},
+            funding={},
+            hub_status="TEST",
+            hub_error="",
+            ready=True,
+        )
+        original = engine_mod.evaluate
+        engine_mod.evaluate = fake
+        try:
+            self.engine._maybe_enter(snap, 1_800_000_000, False)
+        finally:
+            engine_mod.evaluate = original
+        self.assertEqual({position.symbol for position in self.engine.wallet.positions}, set(names))
+        self.assertGreater(self.engine.wallet.cash, 10)
+
     def test_leverage_round_trip_keeps_cash_near_stake(self) -> None:
         snap = self._priced(99.98, 100.0)
         before = self.engine.wallet.cash
@@ -324,7 +399,7 @@ class EngineTests(unittest.TestCase):
         snap = self._priced(99.98, 100.0)
         self.engine._open(self._decision(), snap, 1_800_000_000)
         position = self.engine.wallet.positions[0]
-        mid = self._priced(position.entry * 0.995, position.entry * 0.996)
+        mid = self._priced(position.entry * 0.997, position.entry * 0.998)
         self.assertGreater(mid.books["SOLUSDT"].bid or 0, position.sl)
         self.assertTrue(self.engine._manage(position, mid, False))
         self.assertFalse(self.engine._manage(position, mid, True))
