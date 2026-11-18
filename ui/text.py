@@ -29,7 +29,8 @@ def clock(timestamp: float) -> str:
 
 
 def countdown(seconds: float) -> str:
-    total = int(max(0, seconds))
+    sign = "+" if seconds < 0 else ""
+    total = int(abs(seconds))
     hours, remainder = divmod(total, 3600)
     minutes, secs = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{sign}{hours:02d}:{minutes:02d}:{secs:02d}"

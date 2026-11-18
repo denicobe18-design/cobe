@@ -99,26 +99,22 @@ def deck_html(
     cash: str,
     remaining: str,
     done: int,
-    goal: int,
     capital_pct: float,
-    trade_pct: float,
 ) -> str:
     tone = "up" if pnl_up else "down"
     return (
         "<div class='deck'>"
         f"<article class='tile'><span>Kapital</span><strong>{_esc(equity)}</strong>"
         f"<em class='{tone}'>{_esc(pnl)}</em></article>"
-        f"<article class='tile'><span>Rok</span><strong>{_esc(remaining)}</strong>"
-        "<em>24 sata</em></article>"
+        f"<article class='tile'><span>Sat</span><strong>{_esc(remaining)}</strong>"
+        "<em>cilj jedan sat, motor ide dalje</em></article>"
         f"<article class='tile'><span>Gotovina</span><strong>{_esc(cash)}</strong>"
-        "<em>slobodno</em></article>"
-        f"<article class='tile'><span>Trejdovi</span><strong>{done} / {goal}</strong>"
-        "<em>kvota</em></article>"
+        "<em>slobodno za nove ulaze</em></article>"
+        f"<article class='tile'><span>Trejdovi</span><strong>{done}</strong>"
+        "<em>koliko ih stigne</em></article>"
         "<div class='bars'>"
-        f"<label>Put do 1.000 € <b>{capital_pct:.0f}%</b></label>"
+        f"<label>Put do 200 € <b>{capital_pct:.0f}%</b></label>"
         f"<div class='progress'><span style='width:{capital_pct:.1f}%'></span></div>"
-        f"<label>Kvota trejdova <b>{done}</b></label>"
-        f"<div class='progress quota'><span style='width:{trade_pct:.1f}%'></span></div>"
         "</div></div>"
     )
 

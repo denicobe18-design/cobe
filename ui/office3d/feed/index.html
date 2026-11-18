@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <style>html, body { margin: 0; height: 0; overflow: hidden; }</style>
+</head>
+<body>
+  <script>
+    let latest = null;
+    function post(msg) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, msg), "*");
+    }
+    function push() {
+      if (!latest) return;
+      const frames = window.parent.document.querySelectorAll("iframe");
+      frames.forEach(function (frame) {
+        try {
+          if (frame.contentWindow && frame.contentWindow !== window) {
+            frame.contentWindow.postMessage({ type: "doxa-feed", args: latest }, "*");
+          }
+        } catch (err) { /* tuđi okvir */ }
+      });
+    }
+    post({ type: "streamlit:componentReady", apiVersion: 1 });
+    post({ type: "streamlit:setFrameHeight", height: 0 });
+    window.addEventListener("message", function (event) {
+      const data = event.data;
+      if (!data || data.type !== "streamlit:render") return;
+      latest = data.args || {};
+      push();
+      post({ type: "streamlit:setFrameHeight", height: 0 });
+    });
+    setInterval(push, 700);
+  </script>
+</body>
+</html>

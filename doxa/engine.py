@@ -10,6 +10,7 @@ from doxa.agents import assess_btc, evaluate
 from doxa.brains import brains_to_plain, learn_pack
 from doxa.config import (
     ENTRY_COOLDOWN_S,
+    FREEZE_COOLDOWN_S,
     GLOBAL_ENTRY_GAP_S,
     MIN_STAKE_EUR,
     MIN_TRADES,
@@ -74,7 +75,7 @@ class Engine:
             triggered, _delta, _ratio, guard_detail = assess_btc(snapshot, doctrine)
             was_frozen = now < wallet.frozen_until
             if triggered:
-                wallet.frozen_until = max(wallet.frozen_until, now + 180.0)
+                wallet.frozen_until = max(wallet.frozen_until, now + FREEZE_COOLDOWN_S)
                 wallet.freeze_detail = guard_detail
                 if not was_frozen:
                     self._note("⚠️ BTC Macro Guard: " + guard_detail, telegram=True)
@@ -132,7 +133,7 @@ class Engine:
             snap = self.last_snap
             now = time.time()
             equity = self.equity(snap)
-            remaining = max(0.0, self.wallet.started_at + self.wallet.horizon_s - now)
+            remaining = self.wallet.started_at + self.wallet.horizon_s - now
             stats = self.stats()
             return {
                 "cash": self.wallet.cash,
@@ -185,12 +186,10 @@ class Engine:
 
     def resume(self) -> None:
         with self._lock:
-            now = time.time()
             reason = self.wallet.halt_reason.lower()
-            deadline = now >= self.wallet.started_at + self.wallet.horizon_s
-            sealed = deadline or "zatvoren" in reason or "izvršen" in reason
+            sealed = "zatvoren" in reason or "izvršen" in reason
             if sealed:
-                self._note("Ured ostaje zatvoren. Samo Reset otvara novi sat.")
+                self._note("Ured ostaje zatvoren. Samo Reset otvara novi račun.")
                 save_wallet(self.wallet)
                 return
             self.wallet.halted = False
@@ -203,7 +202,7 @@ class Engine:
             self.wallet = fresh_wallet()
             self._symbol_cooldown.clear()
             self._last_global_entry = 0.0
-            self._note("Novi dan. Kapital 100 €, naredba 1.000 € i 1.000 trejdova za 24 sata.")
+            self._note("Novi sat. Kapital 100 €, naredba 200 €. Motor ide dok cilj nije na računu.")
             save_wallet(self.wallet)
 
     def new_sample(self) -> None:
@@ -222,21 +221,13 @@ class Engine:
             return
         snap = self.last_snap
         equity = self.equity(snap) if snap is not None else self.wallet.cash
-        quota = self.wallet.trade_count >= MIN_TRADES
-        if equity >= self.wallet.target and quota and snap is not None:
+        if equity >= self.wallet.target and snap is not None:
             self._flatten(snap, "CILJ")
-            if self.equity(snap) >= self.wallet.target and self.wallet.trade_count >= MIN_TRADES:
+            if self.equity(snap) >= self.wallet.target:
                 self.wallet.halted = True
-                self.wallet.halt_reason = "Nalog izvršen. 1.000 € i 1.000 trejdova su na računu."
-                self._note("✅ Nalog izvršen. Cilj i kvota trejdova su ispunjeni.", telegram=True)
+                self.wallet.halt_reason = "Nalog izvršen. Cilj 200 € je na računu."
+                self._note("✅ Nalog izvršen. Cilj 200 € je na računu.", telegram=True)
                 return
-        if now >= self.wallet.started_at + self.wallet.horizon_s:
-            self.wallet.halted = True
-            self.wallet.halt_reason = "Ured zatvoren. 24 sata je isteklo, cilj nije ispunjen."
-            if snap is not None:
-                self._flatten(snap, "ROK")
-            self._note("⏱️ Ured zatvoren. Dan je istekao bez 1.000 € i 1.000 trejdova.", telegram=True)
-            return
         if equity < MIN_STAKE_EUR and not self.wallet.positions:
             self.wallet.halted = True
             self.wallet.halt_reason = "Ured zatvoren. Kapital je ispod minimalnog uloga."
@@ -339,7 +330,7 @@ class Engine:
                 brains=self.wallet.brains,
             )
             if decision.setup and not decision.allow:
-                self._symbol_cooldown[symbol] = now + 4.0
+                self._symbol_cooldown[symbol] = now + ENTRY_COOLDOWN_S
             if decision.allow:
                 ready.append(decision)
         ready.sort(key=lambda item: item.score, reverse=True)

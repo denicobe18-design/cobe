@@ -168,8 +168,8 @@ class AgentTests(unittest.TestCase):
                 "flow": {"ema": -0.05, "n": 6},
             }
         decision = evaluate(self._market(), "SOLUSDT", Doctrine(), Stats(), brains=brains)
-        self.assertFalse(decision.allow, decision.reason)
-        self.assertIn("ugasio", decision.reason)
+        self.assertTrue(decision.allow, decision.reason)
+        self.assertEqual(decision.metrics["lead"], "flow")
 
     def test_skeptic_veto(self) -> None:
         decision = evaluate(self._market(funding=0.001, breakout_volume=10), "SOLUSDT", Doctrine(), Stats())
@@ -387,28 +387,36 @@ class EngineTests(unittest.TestCase):
         self.assertGreater(self.engine.wallet.cash, before * 0.8)
         self.assertLess(self.engine.wallet.cash, before)
 
-    def test_hour_without_target_closes_the_office(self) -> None:
+    def test_hour_without_target_keeps_the_office_open(self) -> None:
         self.engine.wallet.started_at = 1_000.0
         snap = self._priced(99.98, 100.0)
         self.engine.last_snap = snap
-        self.engine._expire(self.engine.wallet.started_at + self.engine.wallet.horizon_s + 1)
+        self.engine._expire(self.engine.wallet.started_at + self.engine.wallet.horizon_s + 5)
+        self.assertFalse(self.engine.wallet.halted)
+        self.assertEqual(self.engine.wallet.halt_reason, "")
+
+    def test_ruin_still_closes_the_office(self) -> None:
+        self.engine.wallet.cash = 1.0
+        self.engine.wallet.positions = []
+        snap = self._priced(99.98, 100.0)
+        self.engine.last_snap = snap
+        self.engine._expire(self.engine.wallet.started_at)
         self.assertTrue(self.engine.wallet.halted)
         self.assertIn("zatvoren", self.engine.wallet.halt_reason.lower())
         self.engine.resume()
         self.assertTrue(self.engine.wallet.halted)
 
-    def test_target_waits_until_trade_quota(self) -> None:
-        from doxa.config import MIN_TRADES
-
-        self.engine.wallet.cash = 1000
+    def test_target_halts_at_two_hundred(self) -> None:
         snap = self._priced(99.98, 100.0)
         self.engine.last_snap = snap
+        self.engine.wallet.cash = 150
         self.engine._expire(self.engine.wallet.started_at)
         self.assertFalse(self.engine.wallet.halted)
-        self.engine.wallet.trade_count = MIN_TRADES
+        self.engine.wallet.cash = 200
         self.engine._expire(self.engine.wallet.started_at)
         self.assertTrue(self.engine.wallet.halted)
         self.assertIn("izvršen", self.engine.wallet.halt_reason.lower())
+        self.assertIn("200", self.engine.wallet.halt_reason)
 
     def test_old_mission_restarts_the_hour(self) -> None:
         from doxa.config import HORIZON_S, MISSION_ID, START_CASH

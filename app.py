@@ -14,7 +14,8 @@ from doxa.runtime import ensure_started
 from doxa.store import peek_wallet
 from doxa.engine import Engine
 from ui.chart import build_figure
-from ui.office import deck_html, journal_html, office_html, positions_html, rail_html
+from ui.office import deck_html, journal_html, positions_html, rail_html
+from ui.office3d import office_3d, office_feed, people_payload
 from ui.styles import apply_brutal_styles
 from ui.text import clock, countdown, eur, pct, px
 
@@ -111,56 +112,47 @@ def cockpit() -> None:
     target = float(state["target"]) or 1.0
     progress = max(0.0, min(1.0, equity / target))
     done = int(state.get("trade_count") or 0)
-    goal = max(1, int(state.get("trades_goal") or 1000))
-    trade_progress = max(0.0, min(1.0, done / goal))
     pnl_value = float(state["pnl"])
     pnl_text = ("+" if pnl_value >= 0 else "") + eur(pnl_value)
-    left_col, right_col = st.columns([1.08, 0.92], gap="medium")
-    with left_col:
-        st.markdown(
-            office_html(
-                decision.views,
-                countdown=countdown(state["remaining_s"]),
-                equity=eur(equity),
-                lesson=lesson,
-                teacher_state=teacher_state,
-                win_rate=win_rate,
-                status=f"{role} · {status}",
-                shut=shut,
-                won=won,
-            ),
-            unsafe_allow_html=True,
-        )
-    with right_col:
-        st.markdown(
-            deck_html(
-                equity=eur(equity),
-                pnl=pnl_text,
-                pnl_up=pnl_value >= 0,
-                cash=eur(float(state["cash"])),
-                remaining=countdown(state["remaining_s"]),
-                done=done,
-                goal=goal,
-                capital_pct=progress * 100,
-                trade_pct=trade_progress * 100,
-            ),
-            unsafe_allow_html=True,
-        )
-        st.selectbox("Par na grafu", focus_options, key="focus")
+    office_feed(
+        people_payload(decision.views, teacher_state, lesson, win_rate),
+        status=f"{role} · {status}",
+        countdown=countdown(state["remaining_s"]),
+        equity=eur(equity),
+        lesson=lesson,
+    )
+    st.markdown(
+        deck_html(
+            equity=eur(equity),
+            pnl=pnl_text,
+            pnl_up=pnl_value >= 0,
+            cash=eur(float(state["cash"])),
+            remaining=countdown(state["remaining_s"]),
+            done=done,
+            capital_pct=progress * 100,
+        ),
+        unsafe_allow_html=True,
+    )
+    st.selectbox("Par na grafu", focus_options, key="focus")
+    interval = "1m"
+    candles = snapshot.candles.get(focus, {}).get("1m", ())
+    forming = snapshot.forming.get(focus, {}).get("1m")
+    if len(candles) < 5:
+        interval = "15m"
         candles = snapshot.candles.get(focus, {}).get("15m", ())
         forming = snapshot.forming.get(focus, {}).get("15m")
-        position = next((row for row in state["positions"] if row["symbol"] == focus), None)
-        st.plotly_chart(
-            build_figure(focus, candles, forming, position),
-            width="stretch",
-            config={"displayModeBar": False},
-        )
-        st.markdown(
-            f"<div class='reason'>{html.escape(decision.reason)}</div>",
-            unsafe_allow_html=True,
-        )
-        if snapshot.hub_error:
-            st.caption(snapshot.hub_error)
+    position = next((row for row in state["positions"] if row["symbol"] == focus), None)
+    st.plotly_chart(
+        build_figure(focus, candles, forming, position, interval=interval),
+        width="stretch",
+        config={"displayModeBar": False, "responsive": True},
+    )
+    st.markdown(
+        f"<div class='reason'>{html.escape(decision.reason)}</div>",
+        unsafe_allow_html=True,
+    )
+    if snapshot.hub_error:
+        st.caption(snapshot.hub_error)
 
     st.markdown(
         rail_html(decision.views, teacher_state, lesson, win_rate),
@@ -170,7 +162,10 @@ def cockpit() -> None:
     log_rows = [{"clock": clock(float(item["t"])), "text": item["text"]} for item in state["log"]]
     st.markdown(journal_html(log_rows, state["lessons"]), unsafe_allow_html=True)
 
-    st.markdown("<div class='dock-label'>Kontrola motora</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='dock-label'>Motor radi sam. Tipke su tu ako želiš prekinuti ili krenuti ispočetka.</div>",
+        unsafe_allow_html=True,
+    )
     halt_col, resume_col, reset_col, sample_col = st.columns(4)
     active = engine is not None
     with halt_col:
@@ -196,17 +191,18 @@ def main() -> None:
         <header class="mast">
             <div>
                 <h1><span>DOXA</span> QUANT CORE</h1>
-                <p>Papir na živoj cijeni. Nalozi ne odlaze na burzu.</p>
+                <p>Papir na živoj cijeni. Motor sam ulazi. Nalozi ne odlaze na burzu.</p>
             </div>
             <div class="chips">
-                <b>100 € → 1.000 €</b>
-                <b>24 sata</b>
-                <b>1.000 trejdova</b>
+                <b>100 € → 200 €</b>
+                <b>1 sat</b>
+                <b>ide do cilja</b>
             </div>
         </header>
         """,
         unsafe_allow_html=True,
     )
+    office_3d([], status="MOTOR · LIVE", countdown="", equity="", lesson="")
     cockpit()
 
 

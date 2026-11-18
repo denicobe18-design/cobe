@@ -14,8 +14,14 @@ def _stamp(open_time: int) -> datetime:
     return datetime.fromtimestamp(open_time / 1000, WARSAW)
 
 
-def build_figure(symbol: str, candles: tuple[Candle, ...] | list[Candle], forming: Candle | None, position: dict | None):
-    rows = list(candles[-90:])
+def build_figure(
+    symbol: str,
+    candles: tuple[Candle, ...] | list[Candle],
+    forming: Candle | None,
+    position: dict | None,
+    interval: str = "1m",
+):
+    rows = list(candles[-70:])
     if forming is not None and (not rows or forming.open_time != rows[-1].open_time):
         rows.append(forming)
     figure = go.Figure()
@@ -28,28 +34,47 @@ def build_figure(symbol: str, candles: tuple[Candle, ...] | list[Candle], formin
                 low=[candle.low for candle in rows],
                 close=[candle.close for candle in rows],
                 name=symbol,
-                increasing_line_color="#3dff8a",
-                decreasing_line_color="#ff3358",
-                increasing_fillcolor="#143528",
-                decreasing_fillcolor="#3a1420",
-                whiskerwidth=0.4,
+                increasing_line_color="#8dffc8",
+                decreasing_line_color="#ff5d78",
+                increasing_fillcolor="#1d6b45",
+                decreasing_fillcolor="#7a2438",
+                whiskerwidth=0.35,
             )
         )
     figure.update_layout(
         template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#0b121b",
-        height=430,
-        margin=dict(l=8, r=8, t=42, b=8),
+        paper_bgcolor="#070c12",
+        plot_bgcolor="#070c12",
+        height=280,
+        margin=dict(l=4, r=56, t=36, b=4),
         xaxis_rangeslider_visible=False,
         showlegend=False,
-        title=dict(text=f"{symbol} · 15m · živa cijena", font=dict(size=14, color="#d7fff4"), x=0.01),
-        xaxis=dict(gridcolor="rgba(120,160,170,.12)", tickfont=dict(color="#8eacb4")),
-        yaxis=dict(gridcolor="rgba(120,160,170,.12)", tickfont=dict(color="#8eacb4"), side="right"),
+        hovermode="x unified",
+        font=dict(family="Inter, Segoe UI, sans-serif", color="#d7ece8", size=11),
+        title=dict(
+            text=f"{symbol}  ·  {interval}  ·  živa cijena",
+            font=dict(size=13, color="#e9fff8", family="Inter, Segoe UI, sans-serif"),
+            x=0.01,
+            y=0.97,
+        ),
+        xaxis=dict(gridcolor="rgba(120,160,170,.12)", tickfont=dict(color="#7f9aa3", size=10)),
+        yaxis=dict(gridcolor="rgba(120,160,170,.12)", tickfont=dict(color="#9fd8cf", size=10), side="right"),
+        hoverlabel=dict(bgcolor="#101820", bordercolor="#3ee0c5", font=dict(color="#f4fffb", size=11)),
     )
     if not rows:
-        figure.add_annotation(text="Čekam 15m svijeće s Binancea", showarrow=False, font=dict(color="#8eacb4"))
+        figure.add_annotation(text="Čekam svijeće s Binancea", showarrow=False, font=dict(color="#8eacb4"))
         return figure
+    if position is None:
+        last = rows[-1].close
+        figure.add_hline(
+            y=last,
+            line_color="rgba(215,255,244,0.45)",
+            line_width=1,
+            annotation_text=px(last),
+            annotation_font_color="#d7fff4",
+            annotation_font_size=11,
+            annotation_position="right",
+        )
     if position:
         entry = float(position["entry"])
         stop = float(position["sl"])

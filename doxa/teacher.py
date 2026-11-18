@@ -64,9 +64,9 @@ class Teacher:
             if payoff < 1.0 or win_rate < 0.38:
                 doctrine.kelly_fraction = max(0.15, doctrine.kelly_fraction - _STEP["kelly_fraction"])
                 doctrine.kelly_cap = max(0.08, doctrine.kelly_cap - _STEP["kelly_cap"])
-                doctrine.stand_down = payoff < 0.9 and win_rate < 0.35
-                if doctrine.stand_down:
-                    lessons.append("Rub uzorka je negativan. Gasim nove uloge dok ne krene novi uzorak.")
+                doctrine.stand_down = False
+                if payoff < 0.9 and win_rate < 0.35:
+                    lessons.append("Rub uzorka je negativan. Kelly režem, tempo i dalje ulazi.")
                 else:
                     lessons.append("Serija je slaba. Režem Kelly udio.")
             elif win_rate >= 0.5 and payoff >= 1.2:

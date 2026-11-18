@@ -37,15 +37,16 @@ KLINE_LIMIT = 200
 BOOK_LEVELS = 50
 TAKER_FEE = 0.001
 START_CASH = 100.0
-TARGET_CASH = 1000.0
-HORIZON_S = 24 * 60 * 60
-MISSION_ID = "day-1000"
-MIN_TRADES = 1000
+TARGET_CASH = 200.0
+HORIZON_S = 60 * 60
+MISSION_ID = "goal-200-1h"
+# Tempo gura prema ovoliko ulaza u satu. Nije uvjet za gašenje.
+MIN_TRADES = 300
 MIN_STAKE_EUR = 2.0
-ENTRY_COOLDOWN_S = 4.0
-SCRATCH_S = 50.0
+ENTRY_COOLDOWN_S = 2.0
+SCRATCH_S = 25.0
 GLOBAL_ENTRY_GAP_S = 0.0
-FREEZE_COOLDOWN_S = 180.0
+FREEZE_COOLDOWN_S = 45.0
 
 # Spot koji nije geo-blokiran tamo gdje api.binance.com vraća 451.
 BINANCE_REST = "https://data-api.binance.vision"

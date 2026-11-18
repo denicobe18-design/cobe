@@ -112,7 +112,7 @@ def _stake(doctrine: Doctrine, stats: Stats, imbalance: float | None, sentiment:
         boost *= 0.7
         notes.append("strah")
     sized = min(doctrine.kelly_cap, base * boost)
-    if doctrine.blitz and not doctrine.stand_down:
+    if doctrine.blitz:
         floor = min(doctrine.blitz_floor, doctrine.kelly_cap)
         if sized < floor:
             sized = floor
@@ -509,13 +509,12 @@ def evaluate(
         and whale_yes
     )
     confirmers = sum(1 for name in ("mtf", "radar", "kelly", "trail") if mind_pack[name][0])
-    need_confirm = 0 if doctrine.pace >= 1.5 else 1
-    book_bar = doctrine.whale_block + (0.02 if doctrine.pace >= 1.5 else 0.06)
+    need_confirm = 0
+    book_bar = doctrine.whale_block + 0.01
     flow = (
         imbalance is not None
         and imbalance >= book_bar
         and (spread is None or spread <= doctrine.max_spread)
-        and not minds["whale"].cold("flow")
     )
     plays: list[tuple[str, float, str]] = []
     if whale_yes and imbalance is not None and imbalance >= doctrine.whale_min and confirmers >= need_confirm:
@@ -534,8 +533,8 @@ def evaluate(
         plays.append(("radar", radar_p + 0.06, "Radar vodi nalet"))
     if dip and not minds["whale"].cold("dip"):
         plays.append(("dip", whale_p + 0.03, "Whale vodi dip"))
-    if flow and (doctrine.pace >= 1.2 or whale_yes or mtf_yes or radar_yes):
-        plays.append(("flow", 0.52 + doctrine.pace * 0.04, "Tempo vodi protok"))
+    if flow:
+        plays.append(("flow", 0.56, "Tempo vodi protok"))
     plays.sort(key=lambda item: item[1], reverse=True)
     lead = plays[0][0] if plays else ""
     lead_text = plays[0][2] if plays else ""
@@ -546,8 +545,6 @@ def evaluate(
         reason = "Motor je ugašen."
     elif frozen or triggered:
         reason = "BTC Guard drži zamrzavanje."
-    elif doctrine.stand_down:
-        reason = "Učitelj: stojim, uzorak nema ruba."
     elif missing:
         reason = "Nedovoljno svijeća."
     elif imbalance is None:

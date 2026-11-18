@@ -71,8 +71,8 @@ def fresh_wallet(now: float | None = None) -> Wallet:
         halted=False,
         halt_reason="",
         lessons=[
-            "Naredba: 100 € u 1.000 € za 24 sata, uz najmanje 1.000 trejdova.",
-            "Tempo gura ulaze. Svaki trejd odmah uči. Ako rok istekne, ured se zatvara.",
+            "Naredba: 100 € u 200 €. Sat na satu je cilj, motor ide i nakon njega.",
+            "Tempo drži ulaze. Hladna igra ne gasi ured. Stoji cilj ili kapital ispod uloga.",
         ],
         sample_from=0,
         last_relax_at=clock,

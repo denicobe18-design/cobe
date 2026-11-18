@@ -212,8 +212,23 @@ def apply_brutal_styles() -> None:
         }
         [data-testid="stPlotlyChart"] {
             border: 1px solid rgba(62,224,197,.28); border-radius: 16px;
-            background: #0b121b; overflow: hidden;
-            box-shadow: inset 0 0 40px rgba(0,0,0,.25);
+            background:
+                radial-gradient(420px 160px at 20% 0%, rgba(62,224,197,.08), transparent 70%),
+                #070c12;
+            overflow: hidden;
+            box-shadow: inset 0 0 40px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.25);
+            min-height: 280px;
+        }
+        div[data-testid="stCustomComponentV1"] {
+            border: 1px solid rgba(62,224,197,.34);
+            border-radius: 18px;
+            overflow: hidden;
+            margin: .15rem 0 .75rem;
+            box-shadow: 0 22px 60px rgba(0,0,0,.42);
+        }
+        iframe[title="doxa_feed"] { height: 0 !important; min-height: 0 !important; }
+        div[data-testid="stCustomComponentV1"]:has(iframe[title="doxa_feed"]) {
+            height: 0; min-height: 0; margin: 0; border: 0; box-shadow: none; overflow: hidden;
         }
         .stButton > button {
             border: 1px solid rgba(62,224,197,.45); background: #101820; color: #e7fff8;
