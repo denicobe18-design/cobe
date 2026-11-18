@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DOXA ured</title>
+  <style>
+    html, body { margin: 0; height: 700px; overflow: hidden; background: #07090d; font-family: Inter, "Segoe UI", sans-serif; }
+    #view { position: fixed; inset: 0; }
+    canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    #hud, #hint, #lesson, #miss { position: absolute; z-index: 2; pointer-events: none; color: #e9fff8; }
+    #hud { top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; gap: 12px; }
+    .brand { letter-spacing: .22em; font-weight: 750; font-size: 13px; }
+    .brand span { color: #3ee0c5; }
+    #equity { margin-top: 4px; color: #9fd8cf; font-size: 12px; }
+    .right { text-align: right; }
+    .pill {
+      display: inline-block; padding: 4px 10px; border-radius: 999px;
+      border: 1px solid rgba(62,224,197,.7); color: #b7fff0;
+      letter-spacing: .12em; font-size: 11px; font-family: ui-monospace, monospace;
+    }
+    .pill.warn { color: #ffb020; border-color: rgba(255,176,32,.85); }
+    .pill.dead { color: #ff3358; border-color: rgba(255,51,88,.85); }
+    .pill.won { color: #3dff8a; border-color: rgba(61,255,138,.75); }
+    #clock { margin-top: 6px; color: #ffb020; font-weight: 700; letter-spacing: .14em; font-variant-numeric: tabular-nums; }
+    #hint { left: 16px; bottom: 12px; color: #8eacb4; font-size: 12px; }
+    #lesson { right: 16px; bottom: 12px; max-width: 46%; text-align: right; color: #e8c56b; font-size: 12px; line-height: 1.35; }
+    #miss { inset: 0; display: none; place-items: center; padding: 24px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div id="view"></div>
+  <div id="hud">
+    <div>
+      <div class="brand">DOXA <span>URED</span></div>
+      <div id="equity"></div>
+    </div>
+    <div class="right">
+      <div id="status" class="pill"></div>
+      <div id="clock"></div>
+    </div>
+  </div>
+  <div id="hint">Lijevi klik vuče pogled · kotačić bliže i dalje · desni klik pomiče ured</div>
+  <div id="lesson"></div>
+  <div id="miss">3D prikaz treba WebGL. Osvježi stranicu.</div>
+  <script src="./three.min.js"></script>
+  <script>
+    const FRAME = 700;
+    const STATE = {
+      hot: 0x3dffb0, boost: 0xff2d95, veto: 0xff3358, block: 0xff3358,
+      freeze: 0xffb020, teach: 0xe8c56b, armed: 0x3ee0c5, idle: 0x7f97a1
+    };
+    const LOOK = {
+      whale:    { skin: 0xf1c3a4, hair: 0x24160f, style: "bun",      shirt: 0x14b8a6, pants: 0x1b2128, eye: 0x3d2b20, jacket: 0x0c3b36, cup: true },
+      guard:    { skin: 0xc68662, hair: 0x120e0c, style: "short",    shirt: 0x3d6cb5, pants: 0x14181e, eye: 0x2a2118, jacket: 0x172033 },
+      radar:    { skin: 0xf3c7aa, hair: 0x6a2e24, style: "long",     shirt: 0xff3d8a, pants: 0x221820, eye: 0x3a4a28, jacket: 0x4a1834 },
+      mtf:      { skin: 0xe0aa84, hair: 0x3a2414, style: "short",    shirt: 0x4aa3ff, pants: 0x1a1e26, eye: 0x2e3a28, jacket: 0x16324e, cup: true },
+      skeptic:  { skin: 0xd7a888, hair: 0xc5c8ce, style: "short",    shirt: 0x2a2d33, pants: 0x121418, eye: 0x3a3428, jacket: 0x101114, glasses: true },
+      trail:    { skin: 0xf6d0b4, hair: 0xe2b657, style: "ponytail", shirt: 0xf4f7fb, pants: 0x2a3038, eye: 0x3e6a78, jacket: 0xd5dbe3 },
+      kelly:    { skin: 0xb98464, hair: 0x1a120e, style: "short",    shirt: 0x3ddc86, pants: 0x161a16, eye: 0x2a2418, jacket: 0x145233, cup: true },
+      teacher:  { skin: 0xecc0a2, hair: 0x3a3034, style: "bob",      shirt: 0x1c1612, pants: 0x14110e, eye: 0x3a2e22, jacket: 0xd4b15a, glasses: true, cup: true }
+    };
+    const ROSTER = ["whale", "guard", "radar", "mtf", "skeptic", "trail", "kelly", "teacher"].map(function (id, index) {
+      const x = -6.0 + index * 1.72;
+      return { id: id, x: x, z: -0.04 * x * x };
+    });
+
+    let renderer, scene, camera, clock;
+    let azim = 0.35, phi = 0.95, dist = 6.4;
+    const target = new THREE.Vector3(0, 1.15, 0.2);
+    const stations = {};
+    const actors = [];
+    let ready = false;
+
+    function post(msg) {
+      window.parent.postMessage(Object.assign({ isStreamlitMessage: true }, msg), "*");
+    }
+    function sendHeight() {
+      post({ type: "streamlit:setFrameHeight", height: FRAME });
+    }
+    post({ type: "streamlit:componentReady", apiVersion: 1 });
+    sendHeight();
+
+    function hex(value) { return "#" + new THREE.Color(value).getHexString(); }
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+    function wrap(ctx, text, x, y, maxW, lineH, maxLines) {
+      const words = String(text || "Čekam.").split(/\s+/);
+      let line = "", used = 0;
+      for (let i = 0; i < words.length; i++) {
+        const test = line ? line + " " + words[i] : words[i];
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(line, x, y);
+          line = words[i];
+          y += lineH;
+          used += 1;
+          if (used >= maxLines - 1) {
+            let rest = words.slice(i).join(" ");
+            const full = rest;
+            while (ctx.measureText(rest + "…").width > maxW && rest.length > 1) rest = rest.slice(0, -1);
+            ctx.fillText(rest + (rest !== full ? "…" : ""), x, y);
+            return;
+          }
+        } else line = test;
+      }
+      if (line) ctx.fillText(line, x, y);
+    }
+    function mat(color, rough, metal, glow) {
+      return new THREE.MeshStandardMaterial({
+        color: color, roughness: rough, metalness: metal == null ? 0.04 : metal,
+        emissive: glow || 0x000000, emissiveIntensity: glow ? 0.22 : 0
+      });
+    }
+    function mesh(geo, material, x, y, z) {
+      const item = new THREE.Mesh(geo, material);
+      item.position.set(x, y, z);
+      item.castShadow = true;
+      item.receiveShadow = true;
+      return item;
+    }
+    const GEO = {};
+    function geos() {
+      GEO.head = new THREE.SphereGeometry(0.13, 28, 20);
+      GEO.hair = new THREE.SphereGeometry(0.138, 22, 14, 0, Math.PI * 2, 0, Math.PI * 0.56);
+      GEO.eye = new THREE.SphereGeometry(0.018, 10, 8);
+      GEO.iris = new THREE.SphereGeometry(0.009, 8, 6);
+      GEO.torso = new THREE.CapsuleGeometry(0.15, 0.28, 4, 12);
+      GEO.upper = new THREE.CapsuleGeometry(0.045, 0.16, 3, 8);
+      GEO.fore = new THREE.CapsuleGeometry(0.038, 0.15, 3, 8);
+      GEO.thigh = new THREE.CapsuleGeometry(0.065, 0.18, 3, 8);
+      GEO.shin = new THREE.CapsuleGeometry(0.048, 0.18, 3, 8);
+      GEO.hand = new THREE.SphereGeometry(0.042, 12, 10);
+      GEO.shoe = new THREE.BoxGeometry(0.09, 0.045, 0.16);
+      GEO.neck = new THREE.CylinderGeometry(0.045, 0.05, 0.07, 10);
+    }
+    function buildPerson(look) {
+      const root = new THREE.Group();
+      const skinMat = mat(look.skin, 0.45, 0.02, look.skin);
+      const shirt = mat(look.shirt, 0.62, 0.04);
+      const jacket = mat(look.jacket, 0.55, 0.08);
+      const pants = mat(look.pants, 0.78, 0.02);
+      const shoeMat = mat(0x1a1c20, 0.4, 0.25);
+      const hairMat = mat(look.hair, 0.58, 0.02);
+      const body = new THREE.Group();
+      body.position.set(0, 0, -0.18);
+      const torso = mesh(GEO.torso, shirt, 0, 0.92, 0.02);
+      torso.rotation.x = 0.08;
+      body.add(torso);
+      body.add(mesh(new THREE.SphereGeometry(0.08, 14, 12), jacket, -0.19, 1.08, 0));
+      body.add(mesh(new THREE.SphereGeometry(0.08, 14, 12), jacket, 0.19, 1.08, 0));
+      body.add(mesh(GEO.neck, skinMat, 0, 1.16, 0.03));
+      const head = new THREE.Group();
+      head.position.set(0, 1.42, 0.08);
+      const skull = mesh(GEO.head, skinMat, 0, 0, 0);
+      skull.scale.set(1.0, 1.1, 0.98);
+      head.add(skull);
+      const cap = mesh(GEO.hair, hairMat, 0, 0.03, -0.01);
+      head.add(cap);
+      if (look.style === "bun") head.add(mesh(new THREE.SphereGeometry(0.06, 14, 12), hairMat, 0, 0.1, -0.06));
+      if (look.style === "long" || look.style === "ponytail") {
+        const tail = mesh(new THREE.CapsuleGeometry(0.048, 0.22, 3, 8), hairMat, 0, -0.05, -0.09);
+        tail.rotation.x = 0.55;
+        head.add(tail);
+      }
+      if (look.style === "bob") head.add(mesh(new THREE.SphereGeometry(0.09, 14, 10), hairMat, 0, -0.02, -0.04));
+      const white = mat(0xf6f7f8, 0.28, 0);
+      const iris = mat(look.eye, 0.22, 0);
+      const pupil = mat(0x141414, 0.2, 0);
+      [-1, 1].forEach(function (side) {
+        const eye = mesh(GEO.eye, white, side * 0.042, 0.02, 0.108);
+        eye.scale.set(1.15, 0.8, 0.45);
+        head.add(eye);
+        head.add(mesh(GEO.iris, iris, side * 0.042, 0.02, 0.122));
+        head.add(mesh(new THREE.SphereGeometry(0.0045, 6, 6), pupil, side * 0.042, 0.02, 0.13));
+        const brow = mesh(new THREE.BoxGeometry(0.036, 0.007, 0.008), hairMat, side * 0.042, 0.05, 0.11);
+        brow.rotation.z = side * -0.15;
+        head.add(brow);
+        const ear = mesh(new THREE.SphereGeometry(0.022, 8, 8), skinMat, side * 0.12, 0, 0);
+        ear.scale.set(0.55, 1, 0.7);
+        head.add(ear);
+      });
+      const nose = mesh(new THREE.SphereGeometry(0.018, 8, 8), skinMat, 0, -0.01, 0.12);
+      nose.scale.set(0.75, 1.15, 0.75);
+      head.add(nose);
+      head.add(mesh(new THREE.BoxGeometry(0.042, 0.007, 0.008), mat(0x8d4a48, 0.5, 0), 0, -0.048, 0.108));
+      if (look.glasses) {
+        const frame = mat(0x1a1a1a, 0.25, 0.7);
+        [-1, 1].forEach(function (side) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(0.028, 0.0035, 8, 18), frame);
+          ring.position.set(side * 0.042, 0.02, 0.125);
+          head.add(ring);
+        });
+        head.add(mesh(new THREE.BoxGeometry(0.018, 0.004, 0.004), frame, 0, 0.02, 0.125));
+      }
+      body.add(head);
+      function arm(side) {
+        const g = new THREE.Group();
+        g.position.set(side * 0.22, 1.08, 0.04);
+        g.rotation.z = side * -0.35;
+        g.rotation.x = 1.05;
+        g.add(mesh(GEO.upper, jacket, 0, -0.13, 0));
+        const elbow = new THREE.Group();
+        elbow.position.set(0, -0.28, 0);
+        elbow.rotation.x = -0.85;
+        elbow.add(mesh(GEO.fore, shirt, 0, -0.12, 0));
+        const hand = mesh(GEO.hand, skinMat, 0, -0.26, 0.02);
+        hand.scale.set(1.05, 0.75, 1.25);
+        elbow.add(hand);
+        g.add(elbow);
+        return { group: g, hand: hand };
+      }
+      function leg(side) {
+        const g = new THREE.Group();
+        g.position.set(side * 0.1, 0.52, 0.02);
+        g.rotation.x = 1.35;
+        g.add(mesh(GEO.thigh, pants, 0, -0.14, 0));
+        const knee = new THREE.Group();
+        knee.position.set(0, -0.28, 0);
+        knee.rotation.x = -1.25;
+        knee.add(mesh(GEO.shin, pants, 0, -0.14, 0));
+        knee.add(mesh(GEO.shoe, shoeMat, 0, -0.3, 0.03));
+        g.add(knee);
+        return g;
+      }
+      const left = arm(-1), right = arm(1);
+      body.add(left.group, right.group, leg(-1), leg(1));
+      root.add(body);
+      return { root: root, head: head, hands: [left.hand, right.hand], torso: torso };
+    }
+    function labelSprite() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 768; canvas.height = 280;
+      const ctx = canvas.getContext("2d");
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+      sprite.scale.set(1.46, 1.46 * 280 / 768, 1);
+      sprite.position.set(0, 2.15, -0.18);
+      sprite.center.set(0.5, 0);
+      return { sprite: sprite, ctx: ctx, tex: tex, canvas: canvas };
+    }
+    function paintLabel(slot, person) {
+      const ctx = slot.ctx, w = slot.canvas.width, h = slot.canvas.height;
+      const color = STATE[person.state] || STATE.armed;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(7,12,16,0.92)";
+      roundRect(ctx, 10, 10, w - 20, h - 20, 26);
+      ctx.fill();
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = hex(color);
+      ctx.stroke();
+      ctx.fillStyle = "#f4fffb";
+      ctx.font = "700 46px Segoe UI, Noto Sans, sans-serif";
+      ctx.fillText(person.name || "Agent", 36, 78);
+      ctx.fillStyle = hex(color);
+      ctx.font = "600 26px Segoe UI, Noto Sans, sans-serif";
+      ctx.fillText((person.role || "") + "   ·   " + (person.value || ""), 36, 122);
+      ctx.fillStyle = "#d7ece8";
+      ctx.font = "400 28px Segoe UI, Noto Sans, sans-serif";
+      wrap(ctx, person.job || "Čeka knjigu.", 36, 172, w - 72, 36, 2);
+      slot.tex.needsUpdate = true;
+    }
+    function screenRig() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 512; canvas.height = 288;
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return { canvas: canvas, ctx: canvas.getContext("2d"), tex: tex, material: new THREE.MeshBasicMaterial({ map: tex }) };
+    }
+    function paintScreen(rig, person, seed) {
+      const ctx = rig.ctx, w = rig.canvas.width, h = rig.canvas.height;
+      const color = hex(STATE[person.state] || STATE.armed);
+      ctx.fillStyle = "#071014";
+      ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      let y = h * 0.62;
+      ctx.moveTo(16, y);
+      for (let i = 0; i < 28; i++) {
+        y = Math.max(48, Math.min(h - 16, y - Math.sin(seed * 3 + i * 0.7) * 10));
+        ctx.lineTo(20 + i * 17, y);
+      }
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, w, 34);
+      ctx.fillStyle = "#071014";
+      ctx.font = "700 20px Segoe UI, sans-serif";
+      ctx.fillText((person.role || "DOXA") + "  " + (person.value || ""), 12, 24);
+      ctx.fillStyle = "#e7fff8";
+      ctx.font = "400 22px Segoe UI, sans-serif";
+      wrap(ctx, person.job || "", 14, 68, w - 28, 28, 3);
+      rig.tex.needsUpdate = true;
+    }
+    function monitor(screenMat, x, yaw) {
+      const group = new THREE.Group();
+      group.position.set(x, 0.92, 0.55);
+      group.rotation.y = yaw;
+      const steel = mat(0xc5ced6, 0.22, 0.92);
+      group.add(mesh(new THREE.BoxGeometry(0.62, 0.38, 0.028), mat(0x0c0e12, 0.35, 0.72), 0, 0, 0));
+      const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.32), screenMat);
+      glass.position.z = 0.016;
+      group.add(glass);
+      group.add(mesh(new THREE.CylinderGeometry(0.015, 0.02, 0.16, 8), steel, 0, -0.26, 0));
+      group.add(mesh(new THREE.BoxGeometry(0.18, 0.012, 0.08), steel, 0, -0.34, 0));
+      return group;
+    }
+    function buildStation(id, x, z) {
+      const look = LOOK[id];
+      const root = new THREE.Group();
+      root.position.set(x, 0, z);
+      root.rotation.y = Math.atan2(-x, 6.2);
+      const steel = mat(0xc5ced6, 0.22, 0.92);
+      const top = mesh(new THREE.BoxGeometry(1.32, 0.04, 0.72), mat(0x16191f, 0.28, 0.55), 0, 0.75, 0.1);
+      root.add(top);
+      [[-0.58, -0.18], [0.58, -0.18], [-0.58, 0.38], [0.58, 0.38]].forEach(function (spot) {
+        root.add(mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.75, 8), steel, spot[0], 0.375, spot[1]));
+      });
+      const leather = mat(0x1a1c22, 0.55, 0.15);
+      root.add(mesh(new THREE.BoxGeometry(0.48, 0.06, 0.46), leather, 0, 0.48, -0.36));
+      const back = mesh(new THREE.BoxGeometry(0.48, 0.46, 0.045), leather, 0, 0.74, -0.58);
+      back.rotation.x = -0.08;
+      root.add(back);
+      root.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8), steel, 0, 0.22, -0.36));
+      root.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.02, 12), steel, 0, 0.03, -0.36));
+      const person = buildPerson(look);
+      root.add(person.root);
+      const tag = labelSprite();
+      root.add(tag.sprite);
+      const leftScreen = screenRig();
+      const rightScreen = screenRig();
+      root.add(monitor(leftScreen.material, -0.3, 0.18));
+      root.add(monitor(rightScreen.material, 0.3, -0.18));
+      root.add(mesh(new THREE.BoxGeometry(0.34, 0.018, 0.12), mat(0x101216, 0.4, 0.4), 0, 0.78, 0.02));
+      if (look.cup) {
+        root.add(mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.07, 12), mat(0xf4f1ea, 0.4, 0.05), -0.42, 0.81, 0.16));
+      }
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.025, 10, 8), new THREE.MeshBasicMaterial({ color: STATE.armed }));
+      led.position.set(0.55, 0.8, 0.36);
+      root.add(led);
+      scene.add(root);
+      actors.push({ head: person.head, hands: person.hands, torso: person.torso, phase: Math.abs(x + z) });
+      stations[id] = { tag: tag, screens: [leftScreen, rightScreen], led: led, key: "" };
+    }
+    function canvasTex(draw, w, h) {
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      draw(canvas.getContext("2d"), w, h);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+    function buildRoom() {
+      const floorTex = canvasTex(function (ctx, w, h) {
+        ctx.fillStyle = "#141820"; ctx.fillRect(0, 0, w, h);
+        for (let i = 0; i < 4000; i++) {
+          ctx.fillStyle = "rgba(255,255,255," + (Math.random() * 0.03) + ")";
+          ctx.fillRect(Math.random() * w, Math.random() * h, 2, 2);
+        }
+        ctx.strokeStyle = "rgba(62,224,197,0.09)";
+        for (let i = 0; i <= w; i += 64) {
+          ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke();
+        }
+      }, 512, 512);
+      floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+      floorTex.repeat.set(5, 4);
+      const floor = mesh(new THREE.PlaneGeometry(16, 12), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.32, metalness: 0.42 }), 0, 0, 0);
+      floor.rotation.x = -Math.PI / 2;
+      floor.castShadow = false;
+      scene.add(floor);
+      scene.add(mesh(new THREE.BoxGeometry(0.08, 0.015, 10), new THREE.MeshBasicMaterial({ color: 0x3ee0c5 }), 0, 0.02, -0.4));
+      const wall = mat(0x12161c, 0.86, 0.08);
+      scene.add(mesh(new THREE.BoxGeometry(16, 2.9, 0.12), wall, 0, 1.45, -5.9));
+      scene.add(mesh(new THREE.BoxGeometry(0.12, 2.9, 12), wall, -7.9, 1.45, 0));
+      scene.add(mesh(new THREE.BoxGeometry(0.12, 2.9, 12), wall, 7.9, 1.45, 0));
+      const city = new THREE.Mesh(new THREE.PlaneGeometry(9, 1.7), new THREE.MeshBasicMaterial({
+        map: canvasTex(function (ctx, w, h) {
+          ctx.fillStyle = "#0a1018"; ctx.fillRect(0, 0, w, h);
+          for (let i = 0; i < 180; i++) {
+            ctx.fillStyle = Math.random() > 0.45 ? (Math.random() > 0.5 ? "#f0d7a4" : "#7eb6e8") : "#121820";
+            ctx.fillRect(Math.random() * w, Math.random() * h, 14, 18);
+          }
+        }, 1024, 512)
+      }));
+      city.position.set(0, 1.25, -5.82);
+      scene.add(city);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.68), new THREE.MeshBasicMaterial({
+        map: canvasTex(function (ctx, w, h) {
+          ctx.fillStyle = "#07110f"; ctx.fillRect(0, 0, w, h);
+          ctx.font = "700 140px Segoe UI, sans-serif";
+          ctx.fillStyle = "#3ee0c5"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+          ctx.fillText("DOXA", w / 2, h / 2);
+        }, 1024, 220)
+      }));
+      sign.position.set(0, 2.45, -5.8);
+      scene.add(sign);
+      [-2.4, 2.4].forEach(function (x) {
+        scene.add(mesh(new THREE.BoxGeometry(2.2, 0.05, 0.14), new THREE.MeshBasicMaterial({ color: 0xd7fff4 }), x, 2.85, 0));
+        const light = new THREE.PointLight(0xd8fff6, 18, 8, 2);
+        light.position.set(x, 2.7, 0);
+        scene.add(light);
+      });
+      const teal = new THREE.PointLight(0x3ee0c5, 12, 10, 2);
+      teal.position.set(0, 1.5, 1);
+      scene.add(teal);
+    }
+    function applyCamera() {
+      const sinP = Math.sin(phi);
+      camera.position.set(
+        target.x + dist * sinP * Math.sin(azim),
+        target.y + dist * Math.cos(phi),
+        target.z + dist * sinP * Math.cos(azim)
+      );
+      camera.lookAt(target);
+    }
+    function loadCam() {
+      try {
+        const raw = localStorage.getItem("doxa-office-cam-v3");
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (typeof data.azim === "number") azim = data.azim;
+        if (typeof data.phi === "number") phi = data.phi;
+        if (typeof data.dist === "number") dist = data.dist;
+        if (data.target) target.set(data.target[0], data.target[1], data.target[2]);
+      } catch (err) { /* početni kadar */ }
+    }
+    function saveCam() {
+      try {
+        localStorage.setItem("doxa-office-cam-v3", JSON.stringify({
+          azim: azim, phi: phi, dist: dist, target: [target.x, target.y, target.z]
+        }));
+      } catch (err) { /* kamera ostaje u memoriji */ }
+    }
+    function pan(dx, dy) {
+      const forward = new THREE.Vector3().subVectors(camera.position, target).normalize();
+      const camRight = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+      if (camRight.lengthSq() < 1e-6) camRight.set(1, 0, 0);
+      camRight.normalize();
+      const camUp = new THREE.Vector3().crossVectors(camRight, forward).normalize();
+      const scale = dist * 0.0015;
+      target.addScaledVector(camRight, -dx * scale);
+      target.addScaledVector(camUp, dy * scale);
+      target.y = Math.max(0.35, Math.min(2.8, target.y));
+      target.x = Math.max(-6, Math.min(6, target.x));
+      target.z = Math.max(-5, Math.min(5, target.z));
+    }
+    function boot() {
+      const host = document.getElementById("view");
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(host.clientWidth || window.innerWidth, FRAME);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.2;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      host.appendChild(renderer.domElement);
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x07090d);
+      scene.fog = new THREE.Fog(0x07090d, 14, 30);
+      camera = new THREE.PerspectiveCamera(36, (host.clientWidth || 1100) / FRAME, 0.1, 80);
+      clock = new THREE.Clock();
+      scene.add(new THREE.AmbientLight(0xb7c9d4, 0.55));
+      scene.add(new THREE.HemisphereLight(0x9fd8cf, 0x14110e, 0.7));
+      const sun = new THREE.DirectionalLight(0xfff4e4, 2.6);
+      sun.position.set(4, 9, 6);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.near = 1;
+      sun.shadow.camera.far = 28;
+      sun.shadow.camera.left = -12;
+      sun.shadow.camera.right = 12;
+      sun.shadow.camera.top = 12;
+      sun.shadow.camera.bottom = -12;
+      sun.shadow.bias = -0.00035;
+      scene.add(sun);
+      geos();
+      buildRoom();
+      ROSTER.forEach(function (seat) { buildStation(seat.id, seat.x, seat.z); });
+      loadCam();
+      applyCamera();
+      const canvas = renderer.domElement;
+      let dragging = false, button = 0, lastX = 0, lastY = 0;
+      canvas.addEventListener("contextmenu", function (event) { event.preventDefault(); });
+      canvas.addEventListener("pointerdown", function (event) {
+        dragging = true; button = event.button; lastX = event.clientX; lastY = event.clientY;
+        canvas.setPointerCapture(event.pointerId);
+      });
+      canvas.addEventListener("pointermove", function (event) {
+        if (!dragging) return;
+        const dx = event.clientX - lastX, dy = event.clientY - lastY;
+        lastX = event.clientX; lastY = event.clientY;
+        if (button === 2 || event.shiftKey) pan(dx, dy);
+        else {
+          azim -= dx * 0.005;
+          phi = Math.max(0.28, Math.min(1.32, phi + dy * 0.0035));
+        }
+        applyCamera();
+      });
+      canvas.addEventListener("pointerup", function () { dragging = false; saveCam(); });
+      canvas.addEventListener("wheel", function (event) {
+        event.preventDefault();
+        dist = Math.max(3.2, Math.min(22, dist * (event.deltaY > 0 ? 1.08 : 0.92)));
+        applyCamera();
+        saveCam();
+      }, { passive: false });
+      window.addEventListener("resize", function () {
+        const width = host.clientWidth || window.innerWidth;
+        camera.aspect = width / FRAME;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, FRAME);
+      });
+      ready = true;
+      window.DOXA = { view: function () { return { azim: azim, phi: phi, dist: dist, x: target.x, y: target.y, z: target.z }; } };
+      requestAnimationFrame(frame);
+    }
+    function frame() {
+      requestAnimationFrame(frame);
+      const t = clock.getElapsedTime();
+      actors.forEach(function (actor) {
+        actor.head.rotation.y = Math.sin(t * 0.7 + actor.phase) * 0.12;
+        actor.head.rotation.x = Math.sin(t * 1.2 + actor.phase) * 0.035;
+        actor.hands.forEach(function (hand, index) {
+          hand.position.y = -0.26 + Math.sin(t * 9 + actor.phase + index) * 0.012;
+        });
+      });
+      renderer.render(scene, camera);
+    }
+    function paintHud(args) {
+      const status = String(args.status || "MOTOR");
+      const pill = document.getElementById("status");
+      pill.textContent = status;
+      pill.className = "pill" + (status.indexOf("ZATVOREN") >= 0 || status.indexOf("STOP") >= 0
+        ? " dead" : status.indexOf("NALOG") >= 0 ? " won" : status.indexOf("FREEZE") >= 0 ? " warn" : "");
+      document.getElementById("clock").textContent = args.countdown || "";
+      document.getElementById("equity").textContent = args.equity ? ("Kapital  " + args.equity) : "";
+      document.getElementById("lesson").textContent = args.lesson || "";
+    }
+    function applyPeople(list) {
+      (list || []).forEach(function (person, index) {
+        const slot = stations[person.id];
+        if (!slot) return;
+        const key = [person.state, person.job, person.value, person.name].join("|");
+        if (key === slot.key) return;
+        slot.key = key;
+        paintLabel(slot.tag, person);
+        paintScreen(slot.screens[0], person, index + 1);
+        paintScreen(slot.screens[1], person, index + 4);
+        slot.led.material.color.set(STATE[person.state] || STATE.armed);
+      });
+    }
+    function handleArgs(args) {
+      if (!ready) {
+        try { boot(); }
+        catch (err) {
+          document.getElementById("miss").style.display = "grid";
+          document.getElementById("miss").textContent = "3D ured se nije podigao.";
+          return;
+        }
+      }
+      paintHud(args || {});
+      applyPeople((args || {}).people);
+      sendHeight();
+    }
+    window.addEventListener("message", function (event) {
+      const data = event.data;
+      if (!data) return;
+      if (data.type === "streamlit:render" || data.type === "doxa-feed") handleArgs(data.args || {});
+    });
+    if (typeof THREE === "undefined") document.getElementById("miss").style.display = "grid";
+  </script>
+</body>
+</html>

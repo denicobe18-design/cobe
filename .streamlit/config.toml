@@ -1,9 +1,9 @@
 [theme]
-base = "light"
-primaryColor = "#285b3b"
-backgroundColor = "#faf9f5"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#20251e"
+base = "dark"
+primaryColor = "#3ee0c5"
+backgroundColor = "#070b12"
+secondaryBackgroundColor = "#101820"
+textColor = "#d7ece8"
 font = "sans serif"
 
 [browser]
@@ -11,3 +11,8 @@ gatherUsageStats = false
 
 [client]
 toolbarMode = "minimal"
+
+[server]
+folderWatchBlacklist = ["data"]
+headless = true
+fileWatcherType = "none"
